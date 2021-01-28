@@ -1,0 +1,39 @@
+#ifndef CORE_CONFIG_H
+#define CORE_CONFIG_H
+
+#include <stdint.h>
+#include <tgmath.h>
+#include <float.h>
+
+#cmakedefine USE_DOUBLE_PRECISION
+#cmakedefine USE_ROBUST_BVH_TRAVERSAL
+
+#ifdef USE_DOUBLE_PRECISION
+typedef double real_t;
+typedef uint64_t bits_t;
+#define REAL_EPSILON DBL_EPSILON
+#define REAL_MAX DBL_MAX
+#ifdef FP_FAST_FMA
+#define FAST_REAL_FMA
+#endif
+#else
+typedef float real_t;
+typedef uint32_t bits_t;
+#define REAL_EPSILON FLT_EPSILON
+#define REAL_MAX FLT_MAX
+#ifdef FP_FAST_FMAF
+#define FAST_REAL_FMA
+#endif
+#endif
+
+#if defined(__GNUC__) || defined(__CLANG__)
+#define unlikely(x)   __builtin_expect(x, false)
+#define likely(x)     __builtin_expect(x, true)
+#define always_inline __attribute__((always_inline))
+#else
+#define unlikely(x) x
+#define likely(x) x
+#define always_inline
+#endif
+
+#endif

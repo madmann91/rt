@@ -1,21 +1,145 @@
+#include <stdlib.h>
+#include <stdint.h>
+#include <limits.h>
+
 #include "bvh/bvh.h"
 #include "core/vec3.h"
 #include "core/utils.h"
+#include "core/parallel.h"
+#include "core/alloc.h"
+#include "core/morton.h"
 
 // BVH construction ---------------------------------------------------------------------
 
+/* This construction algorithm is based on
+ * "Parallel Locally-Ordered Clustering for Bounding Volume Hierarchy Construction",
+ * by D. Meister and J. Bittner. 
+ */
+
+struct compute_centers_task {
+    struct parallel_task task;
+    center_fn_t center_fn;
+    void* primitive_data;
+    struct vec3* centers;
+    struct bbox center_bbox;
+};
+
+static void compute_centers_task(struct parallel_task* task) {
+    struct compute_centers_task* centers_task = (void*)task;
+    centers_task->center_fn(
+        centers_task->primitive_data,
+        centers_task->task.begin[0], centers_task->task.end[0],
+        centers_task->centers, sizeof(struct vec3));
+    for (size_t i = centers_task->task.begin[0], n = centers_task->task.end[0]; i < n; ++i)
+        centers_task->center_bbox = extend_bbox(centers_task->center_bbox, centers_task->centers[i]);
+}
+
+static struct vec3* compute_centers(
+    struct thread_pool* thread_pool,
+    struct mem_pool** mem_pool,
+    center_fn_t center_fn,
+    void* primitive_data,
+    struct bbox* center_bbox,
+    size_t primitive_count)
+{
+    struct vec3* centers = xmalloc(sizeof(struct vec3) * primitive_count);
+    struct compute_centers_task* center_task = (void*)parallel_for(
+        thread_pool, mem_pool,
+        compute_centers_task,
+        &(&(struct compute_centers_task) {
+            .center_fn = center_fn,
+            .primitive_data = primitive_data,
+            .centers = centers,
+            .center_bbox = empty_bbox()
+        })->task,
+        sizeof(struct compute_centers_task),
+        (size_t[3]) { 0 },
+        (size_t[3]) { primitive_count, 1, 1 });
+    // Compute the bounding box of all the primitive centers
+    *center_bbox = empty_bbox();
+    while (center_task) {
+        *center_bbox = union_bbox(*center_bbox, center_task->center_bbox);
+        center_task = (struct compute_centers_task*)center_task->task.work_item.next;
+    }
+    reset_mem_pool(mem_pool);
+    return centers;
+}
+
+struct morton_code_task {
+    struct parallel_task task;
+    morton_t* morton_codes;
+    const struct vec3* centers;
+    const struct vec3* centers_min;
+    const struct vec3* center_to_grid;
+};
+
+static void morton_code_task(struct parallel_task* task) {
+    struct morton_code_task* morton_task = (void*)task;
+    for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i) {
+        uint32_t x = (morton_task->centers[i]._[0] - morton_task->centers_min->_[0]) * morton_task->center_to_grid->_[0]; 
+        uint32_t y = (morton_task->centers[i]._[1] - morton_task->centers_min->_[1]) * morton_task->center_to_grid->_[1]; 
+        uint32_t z = (morton_task->centers[i]._[2] - morton_task->centers_min->_[2]) * morton_task->center_to_grid->_[2]; 
+        morton_task->morton_codes[i] = morton_encode(x, y, z);
+    }
+}
+
+static inline morton_t* compute_morton_codes(
+    struct thread_pool* thread_pool,
+    struct mem_pool** mem_pool,
+    center_fn_t center_fn,
+    void* primitive_data,
+    size_t primitive_count)
+{
+    struct bbox center_bbox;
+    struct vec3* centers = compute_centers(
+        thread_pool, mem_pool,
+        center_fn, primitive_data,
+        &center_bbox, primitive_count);
+
+    morton_t* morton_codes = xmalloc(sizeof(morton_t) * primitive_count);
+    size_t grid_dim = 1 << (sizeof(morton_t) * CHAR_BIT / 3);
+    struct vec3 centers_to_grid = div_vec3(
+        const_vec3(grid_dim),
+        sub_vec3(center_bbox.max, center_bbox.min));
+    parallel_for(
+        thread_pool, mem_pool,
+        morton_code_task,
+        (struct parallel_task*)&(struct morton_code_task) {
+            .morton_codes = morton_codes,
+            .centers = centers,
+            .centers_min = &center_bbox.min,
+            .center_to_grid = &centers_to_grid
+        },
+        sizeof(struct morton_code_task),
+        (size_t[3]) { 0 },
+        (size_t[3]) { primitive_count, 1, 1 });
+    reset_mem_pool(mem_pool);
+
+    free(centers);
+    return morton_codes;
+}
+
 struct bvh build_bvh(
     struct thread_pool* thread_pool,
-    struct bbox* bboxes,
-    struct vec3* centers,
+    struct mem_pool** mem_pool,
+    void* primitive_data,
+    bbox_fn_t bbox_fn,
+    center_fn_t center_fn,
     size_t primitive_count)
-{  
-    // TODO: Implement BVH construction using PLOC
+{
+    morton_t* morton_codes = compute_morton_codes(thread_pool, mem_pool, center_fn, primitive_data, primitive_count);
+    size_t* primitive_indices = sort_morton_codes(thread_pool, morton_codes, primitive_count);
+    size_t node_count = 2 * primitive_count - 1;
+    struct bvh_node* nodes = xmalloc(sizeof(struct bvh_node) * node_count);
+    struct bvh_node* leaves = nodes + node_count - primitive_count;
+    construct_leaf_nodes(thread_pool, primitive_data, bbox_fn, leaves, primitive_indices, primitive_count);
+    free(primitive_indices);
+    free(morton_codes);
 }
 
 // Ray traversal ------------------------------------------------------------------------
 
-/* The robust traversal implementation is inspired from T. Ize's Robust BVH traversal
+/* The robust traversal implementation is inspired from T. Ize's "Robust BVH Ray Traversal"
  * article. It is only enabled when USE_ROBUST_BVH_TRAVERSAL is defined.
  */
 
@@ -97,7 +221,7 @@ static inline bool intersect_node(
 }
 
 bool intersect_bvh(
-    const void* intersection_data,
+    void* intersection_data,
     intersect_leaf_fn_t intersect_leaf,
     const struct bvh* bvh, 
     struct ray* ray, struct hit* hit, bool any)

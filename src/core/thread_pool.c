@@ -155,6 +155,10 @@ void free_thread_pool(struct thread_pool* thread_pool) {
     free(thread_pool);
 }
 
+size_t get_thread_count(const struct thread_pool* thread_pool) {
+    return thread_pool->thread_count;
+}
+
 void submit_work(struct thread_pool* thread_pool, struct work_item* first, struct work_item* last) {
     mtx_lock(&thread_pool->queue.mutex);
     if (thread_pool->queue.last_item) {

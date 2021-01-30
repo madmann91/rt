@@ -6,7 +6,7 @@
 #include <time.h>
 #include <assert.h>
 
-#include "core/thread_pool.h"
+#include "core/parallel.h"
 #include "core/utils.h"
 
 struct global_data {
@@ -18,7 +18,7 @@ struct global_data {
 };
 
 struct tile {
-    int i, j, n, m;
+    int i, j, m, n;
 };
 
 static inline uint32_t encode_pixel(uint8_t r, uint8_t g, uint8_t b) {
@@ -89,30 +89,20 @@ static void render_tile(const struct tile* tile, const struct global_data* data)
 }
 
 #ifndef USE_OPENMP
-struct render_job {
-    struct work_item work_item;
-    struct tile tile;
+struct render_task {
+    struct parallel_task task;
     struct global_data* global_data;
 };
 
-static void render_job(struct work_item* item) {
-    struct render_job* job = (void*)item;
-    render_tile(&job->tile, job->global_data);
-}
-
-static inline void init_render_jobs(
-    struct render_job* jobs,
-    size_t count,
-    struct global_data* global_data) {
-    for (size_t i = 1; i < count; ++i) {
-        jobs[i - 1].work_item.work_fn = render_job;
-        jobs[i - 1].work_item.next = &jobs[i].work_item;
-        jobs[i - 1].global_data = global_data;
-    }
-    jobs[count - 1].work_item.work_fn = render_job;
-    jobs[count - 1].work_item.next = NULL;
-    jobs[count - 1].global_data = global_data;
-
+static void render_task(struct parallel_task* task) {
+    struct render_task* render_task = (void*)task;
+    struct tile tile = {
+        .i = render_task->task.begin[1],
+        .j = render_task->task.begin[0],
+        .m = render_task->task.end[1],
+        .n = render_task->task.end[0]
+    };
+    render_tile(&tile, render_task->global_data);
 }
 #endif
 
@@ -136,6 +126,7 @@ int main() {
 #else
     size_t thread_count = detect_system_thread_count();
     struct thread_pool* thread_pool = new_thread_pool(thread_count);
+    struct mem_pool* mem_pool = new_mem_pool();
     const char* output_file = "mandelbrot.ppm";
     printf("Thread pool with %zu thread(s) created\n", thread_count);
 #endif
@@ -147,38 +138,20 @@ int main() {
         .i = 0, .j = 0, .n = n, .m = m
     }, &global_data);
 #else
-    struct render_job jobs[thread_count * 3];
-    init_render_jobs(jobs, thread_count * 3, &global_data);
-    struct render_job* current_job = jobs;
-    struct render_job* first_job = jobs;
-    struct render_job* previous_job = NULL;
-    for (int i = 0; i < m; i += 50) {
-        for (int j = 0; j < n; j += 50) {
-            assert(current_job);
-            current_job->tile = (struct tile) {
-                .i = i,
-                .j = j,
-                .n = j + 50,
-                .m = i + 50
-            };
-            previous_job = current_job;
-            current_job = (struct render_job*)current_job->work_item.next;
-            if (!current_job) {
-                submit_work(thread_pool, &first_job->work_item, &previous_job->work_item);
-                current_job = first_job = (struct render_job*)wait_for_completion(thread_pool, thread_count);
-                previous_job = NULL;
-            }
-        }
-    }
-    if (previous_job)
-        submit_work(thread_pool, &first_job->work_item, &previous_job->work_item);
-    wait_for_completion(thread_pool, 0);
+    parallel_for(
+        thread_pool, &mem_pool,        
+        render_task,
+        (struct parallel_task*)&(struct render_task) { .global_data = &global_data },
+        sizeof(struct render_task),
+        (size_t[3]){ 0, 0, 0 },
+        (size_t[3]){ n, m, 1 });
 #endif
     struct timespec t_end;
     timespec_get(&t_end, TIME_UTC);
 
 #ifndef USE_OPENMP
     free_thread_pool(thread_pool);
+    free_mem_pool(mem_pool);
 #endif
     printf("Rendering took %g seconds\n", elapsed_seconds(&t_start, &t_end));
 

@@ -7,6 +7,7 @@
 
 #cmakedefine USE_DOUBLE_PRECISION
 #cmakedefine USE_ROBUST_BVH_TRAVERSAL
+#cmakedefine USE_64_BIT_MORTON_CODES
 
 #ifdef USE_DOUBLE_PRECISION
 typedef double real_t;

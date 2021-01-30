@@ -17,10 +17,13 @@ struct work_item {
  */
 size_t detect_system_thread_count(void);
 
-/* Creates a new thread pool with an empty queue.  */
+/* Creates a new thread pool with an empty queue. */
 struct thread_pool* new_thread_pool(size_t thread_count);
 /* Destroys the thread pool, and terminates the worker threads, without waiting for completion. */
 void free_thread_pool(struct thread_pool* thread_pool);
+
+/* Returns the number of worker threads contained in the given pool. */
+size_t get_thread_count(const struct thread_pool* thread_pool);
 
 /* Enqueues several work items in order on a thread pool, using locks to prevent data races. */
 void submit_work(struct thread_pool* thread_pool, struct work_item* first, struct work_item* last);

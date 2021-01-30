@@ -7,6 +7,10 @@ add_library(rt_core
     utils.h
     alloc.c
     alloc.h
+    mem_pool.c
+    mem_pool.h
+    parallel.c
+    parallel.h
     thread_pool.c
     thread_pool.h)
 find_package(Threads REQUIRED)

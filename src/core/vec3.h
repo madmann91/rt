@@ -6,6 +6,10 @@
 
 struct vec3 { real_t _[3]; };
 
+static inline struct vec3 const_vec3(real_t x) {
+    return (struct vec3) { { x, x, x } };
+}
+
 static inline struct vec3 add_vec3(struct vec3 a, struct vec3 b) {
     return (struct vec3) { { a._[0] + b._[0], a._[1] + b._[1], a._[2] + b._[2] } };
 }
@@ -16,6 +20,10 @@ static inline struct vec3 sub_vec3(struct vec3 a, struct vec3 b) {
 
 static inline struct vec3 mul_vec3(struct vec3 a, struct vec3 b) {
     return (struct vec3) { { a._[0] * b._[0], a._[1] * b._[1], a._[2] * b._[2] } };
+}
+
+static inline struct vec3 div_vec3(struct vec3 a, struct vec3 b) {
+    return (struct vec3) { { a._[0] / b._[0], a._[1] / b._[1], a._[2] / b._[2] } };
 }
 
 static inline struct vec3 min_vec3(struct vec3 a, struct vec3 b) {

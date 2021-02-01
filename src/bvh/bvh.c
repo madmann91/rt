@@ -8,6 +8,7 @@
 #include "core/parallel.h"
 #include "core/alloc.h"
 #include "core/morton.h"
+#include "core/radix_sort.h"
 
 // BVH construction ---------------------------------------------------------------------
 
@@ -119,6 +120,28 @@ static inline morton_t* compute_morton_codes(
     return morton_codes;
 }
 
+static size_t* sort_morton_codes(
+    struct thread_pool* thread_pool,
+    struct mem_pool** mem_pool,
+    morton_t* morton_codes,
+    size_t primitive_count)
+{
+    size_t* primitive_indices      = xmalloc(sizeof(size_t) * primitive_count);
+    size_t* primitive_indices_copy = xmalloc(sizeof(size_t) * primitive_count);
+    morton_t* morton_codes_copy    = xmalloc(sizeof(morton_t) * primitive_count);
+    void* morton_src = morton_codes, *morton_dst = morton_codes_copy;
+    radix_sort(
+        thread_pool, mem_pool,
+        &morton_src, &primitive_indices,
+        &morton_dst, &primitive_indices_copy,
+        sizeof(morton_t), primitive_count,
+        sizeof(morton_t) * CHAR_BIT);
+    free(morton_dst);
+    free(primitive_indices_copy);
+    morton_codes = morton_src;
+    return primitive_indices;
+}
+
 struct bvh build_bvh(
     struct thread_pool* thread_pool,
     struct mem_pool** mem_pool,
@@ -128,11 +151,11 @@ struct bvh build_bvh(
     size_t primitive_count)
 {
     morton_t* morton_codes = compute_morton_codes(thread_pool, mem_pool, center_fn, primitive_data, primitive_count);
-    size_t* primitive_indices = sort_morton_codes(thread_pool, morton_codes, primitive_count);
+    size_t* primitive_indices = sort_morton_codes(thread_pool, mem_pool, morton_codes, primitive_count);
     size_t node_count = 2 * primitive_count - 1;
     struct bvh_node* nodes = xmalloc(sizeof(struct bvh_node) * node_count);
     struct bvh_node* leaves = nodes + node_count - primitive_count;
-    construct_leaf_nodes(thread_pool, primitive_data, bbox_fn, leaves, primitive_indices, primitive_count);
+    construct_leaf_nodes(thread_pool, mem_pool, primitive_data, bbox_fn, leaves, primitive_indices, primitive_count);
     free(primitive_indices);
     free(morton_codes);
 }

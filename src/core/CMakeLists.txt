@@ -11,6 +11,8 @@ add_library(rt_core
     mem_pool.h
     parallel.c
     parallel.h
+    radix_sort.c
+    radix_sort.h
     thread_pool.c
     thread_pool.h)
 find_package(Threads REQUIRED)

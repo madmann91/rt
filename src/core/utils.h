@@ -7,6 +7,8 @@
 
 #include "core/config.h"
 
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
+
 static inline real_t min_real(real_t x, real_t y) {
     // Ensures that the result is not a NaN if `y` is not a NaN
     return x < y ? x : y;

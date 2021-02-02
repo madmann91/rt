@@ -24,16 +24,8 @@ struct bvh {
 /* Bounding box and cent callbacks used by the construction algorithm
  * to obtain the bounding box and center of a primitive, respectively.
  */
-typedef void (*bbox_fn_t)(
-    void* primitive_data,
-    size_t begin, size_t end,
-    struct bbox* bboxes,
-    size_t stride);
-typedef void (*center_fn_t)(
-    void* primitive_data,
-    size_t begin, size_t end,
-    struct vec3* centers,
-    size_t stride);
+typedef struct bbox (*bbox_fn_t)(void* primitive_data, size_t index);
+typedef struct vec3 (*center_fn_t)(void* primitive_data, size_t index);
 
 /* Builds a BVH for a set of primitives with the given
  * bounding boxes and centers. The thread pool is used to

@@ -1,7 +1,7 @@
 #include <string.h>
 #include <assert.h>
 
-#include "core/parallel.h"
+#include "core/parallel_for.h"
 
 static inline struct parallel_task* task_at(
     struct parallel_task* tasks, size_t task_size, size_t index)

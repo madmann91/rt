@@ -5,7 +5,7 @@
 #include "bvh/bvh.h"
 #include "core/vec3.h"
 #include "core/utils.h"
-#include "core/parallel.h"
+#include "core/parallel_for.h"
 #include "core/alloc.h"
 #include "core/morton.h"
 #include "core/radix_sort.h"
@@ -17,6 +17,23 @@
  * by D. Meister and J. Bittner. 
  */
 
+#define SEARCH_RADIUS 14
+
+static inline size_t search_begin(size_t i) {
+    return i > SEARCH_RADIUS ? i - SEARCH_RADIUS : 0;
+}
+
+static inline size_t search_end(size_t i, size_t n) {
+    return i + SEARCH_RADIUS < n ? i + SEARCH_RADIUS : n;
+}
+
+static inline struct bbox get_node_bbox(const struct bvh_node* node) {
+    return (struct bbox) {
+        .min = (struct vec3) { { node->bounds[0], node->bounds[2], node->bounds[4] } },
+        .max = (struct vec3) { { node->bounds[1], node->bounds[3], node->bounds[5] } },
+    };
+}
+
 struct compute_centers_task {
     struct parallel_task task;
     center_fn_t center_fn;
@@ -27,12 +44,11 @@ struct compute_centers_task {
 
 static void compute_centers_task(struct parallel_task* task) {
     struct compute_centers_task* centers_task = (void*)task;
-    centers_task->center_fn(
-        centers_task->primitive_data,
-        centers_task->task.begin[0], centers_task->task.end[0],
-        centers_task->centers, sizeof(struct vec3));
-    for (size_t i = centers_task->task.begin[0], n = centers_task->task.end[0]; i < n; ++i)
-        centers_task->center_bbox = extend_bbox(centers_task->center_bbox, centers_task->centers[i]);
+    for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i) {
+        struct vec3 center = centers_task->center_fn(centers_task->primitive_data, i);
+        centers_task->centers[i] = center;
+        centers_task->center_bbox = extend_bbox(centers_task->center_bbox, center);
+    }
 }
 
 static struct vec3* compute_centers(
@@ -43,6 +59,7 @@ static struct vec3* compute_centers(
     struct bbox* center_bbox,
     size_t primitive_count)
 {
+    size_t prev_used_mem = get_used_mem(*mem_pool);
     struct vec3* centers = xmalloc(sizeof(struct vec3) * primitive_count);
     struct compute_centers_task* center_task = (void*)parallel_for(
         thread_pool, mem_pool,
@@ -62,13 +79,14 @@ static struct vec3* compute_centers(
         *center_bbox = union_bbox(*center_bbox, center_task->center_bbox);
         center_task = (struct compute_centers_task*)center_task->task.work_item.next;
     }
-    reset_mem_pool(mem_pool);
+    reset_mem_pool(mem_pool, prev_used_mem);
     return centers;
 }
 
 struct morton_code_task {
     struct parallel_task task;
     morton_t* morton_codes;
+    size_t* primitive_indices;
     const struct vec3* centers;
     const struct vec3* centers_min;
     const struct vec3* center_to_grid;
@@ -81,23 +99,28 @@ static void morton_code_task(struct parallel_task* task) {
         uint32_t y = (morton_task->centers[i]._[1] - morton_task->centers_min->_[1]) * morton_task->center_to_grid->_[1]; 
         uint32_t z = (morton_task->centers[i]._[2] - morton_task->centers_min->_[2]) * morton_task->center_to_grid->_[2]; 
         morton_task->morton_codes[i] = morton_encode(x, y, z);
+        morton_task->primitive_indices[i] = i;
     }
 }
 
-static inline morton_t* compute_morton_codes(
+static inline void compute_morton_codes(
     struct thread_pool* thread_pool,
     struct mem_pool** mem_pool,
+    morton_t** morton_codes,
+    size_t** primitive_indices,
     center_fn_t center_fn,
     void* primitive_data,
     size_t primitive_count)
 {
+    size_t prev_used_mem = get_used_mem(*mem_pool);
     struct bbox center_bbox;
     struct vec3* centers = compute_centers(
         thread_pool, mem_pool,
         center_fn, primitive_data,
         &center_bbox, primitive_count);
 
-    morton_t* morton_codes = xmalloc(sizeof(morton_t) * primitive_count);
+    *morton_codes = xmalloc(sizeof(morton_t) * primitive_count);
+    *primitive_indices = xmalloc(sizeof(size_t) * primitive_count);
     size_t grid_dim = 1 << (sizeof(morton_t) * CHAR_BIT / 3);
     struct vec3 centers_to_grid = div_vec3(
         const_vec3(grid_dim),
@@ -106,7 +129,8 @@ static inline morton_t* compute_morton_codes(
         thread_pool, mem_pool,
         morton_code_task,
         (struct parallel_task*)&(struct morton_code_task) {
-            .morton_codes = morton_codes,
+            .morton_codes = *morton_codes,
+            .primitive_indices = *primitive_indices,
             .centers = centers,
             .centers_min = &center_bbox.min,
             .center_to_grid = &centers_to_grid
@@ -114,19 +138,17 @@ static inline morton_t* compute_morton_codes(
         sizeof(struct morton_code_task),
         (size_t[3]) { 0 },
         (size_t[3]) { primitive_count, 1, 1 });
-    reset_mem_pool(mem_pool);
-
+    reset_mem_pool(mem_pool, prev_used_mem);
     free(centers);
-    return morton_codes;
 }
 
 static size_t* sort_morton_codes(
     struct thread_pool* thread_pool,
     struct mem_pool** mem_pool,
     morton_t* morton_codes,
+    size_t* primitive_indices,
     size_t primitive_count)
 {
-    size_t* primitive_indices      = xmalloc(sizeof(size_t) * primitive_count);
     size_t* primitive_indices_copy = xmalloc(sizeof(size_t) * primitive_count);
     morton_t* morton_codes_copy    = xmalloc(sizeof(morton_t) * primitive_count);
     void* morton_src = morton_codes, *morton_dst = morton_codes_copy;
@@ -142,6 +164,73 @@ static size_t* sort_morton_codes(
     return primitive_indices;
 }
 
+struct leaf_node_task {
+    struct parallel_task task;
+    const size_t* primitive_indices;
+    void* primitive_data;
+    bbox_fn_t bbox_fn;
+    struct bvh_node* leaves;
+};
+
+static void leaf_node_task(struct parallel_task* task) {
+    struct leaf_node_task* leaf_node_task = (void*)task;
+    for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i) {
+        struct bbox bbox = leaf_node_task->bbox_fn(
+            leaf_node_task->primitive_data, leaf_node_task->primitive_indices[i]);
+        struct bvh_node* leaf = &leaf_node_task->leaves[i];
+        leaf->bounds[0] = bbox.min._[0];
+        leaf->bounds[1] = bbox.max._[0];
+        leaf->bounds[2] = bbox.min._[1];
+        leaf->bounds[3] = bbox.max._[1];
+        leaf->bounds[4] = bbox.min._[2];
+        leaf->bounds[5] = bbox.max._[2];
+        leaf->primitive_count = 1;
+        leaf->first_child_or_primitive = i;
+    }
+}
+
+struct neighbor_task {
+    struct parallel_task task;
+    const struct bvh_node* nodes;
+    size_t* neighbors;
+    size_t node_count;
+};
+
+static void neighbor_task(struct parallel_task* task) {
+    struct neighbor_task* neighbor_task = (void*)task;
+    for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i) {
+        size_t best_neighbor = -1;
+        real_t best_distance = REAL_MAX;
+        for (size_t j = search_begin(i), n = search_end(i, neighbor_task->node_count); j < n; ++j) {
+            real_t distance = half_bbox_area(union_bbox(
+                get_node_bbox(&neighbor_task->nodes[i]),
+                get_node_bbox(&neighbor_task->nodes[j])));
+            if (distance < best_distance) {
+                best_distance = distance;
+                best_neighbor = j;
+            }
+        }
+        neighbor_task->neighbors[i] = best_neighbor;
+    }
+}
+
+static void merge_nodes(
+    struct thread_pool* thread_pool,
+    struct mem_pool** mem_pool,
+    struct bvh_node** src_unmerged_nodes,
+    struct bvh_node** dst_unmerged_nodes,
+    size_t* unmerged_count,
+    struct bvh_node* merged_nodes,
+    size_t* merged_index,
+    const size_t* neighbors)
+{
+    // Count how many nodes are merged
+    // Perform a prefix sum to find where to place merged nodes
+    // Copy merged nodes into the array
+}
+
+SWAP(nodes, struct bvh_node*)
+
 struct bvh build_bvh(
     struct thread_pool* thread_pool,
     struct mem_pool** mem_pool,
@@ -150,14 +239,73 @@ struct bvh build_bvh(
     center_fn_t center_fn,
     size_t primitive_count)
 {
-    morton_t* morton_codes = compute_morton_codes(thread_pool, mem_pool, center_fn, primitive_data, primitive_count);
-    size_t* primitive_indices = sort_morton_codes(thread_pool, mem_pool, morton_codes, primitive_count);
-    size_t node_count = 2 * primitive_count - 1;
-    struct bvh_node* nodes = xmalloc(sizeof(struct bvh_node) * node_count);
-    struct bvh_node* leaves = nodes + node_count - primitive_count;
-    construct_leaf_nodes(thread_pool, mem_pool, primitive_data, bbox_fn, leaves, primitive_indices, primitive_count);
-    free(primitive_indices);
+    // Sort primitives by morton code
+    size_t* primitive_indices;
+    morton_t* morton_codes;
+    compute_morton_codes(
+        thread_pool, mem_pool,
+        &morton_codes, &primitive_indices,
+        center_fn, primitive_data, primitive_count);
+    sort_morton_codes(
+        thread_pool, mem_pool,
+        morton_codes, primitive_indices,
+        primitive_count);
     free(morton_codes);
+
+    // Construct leaf nodes
+    struct bvh_node* unmerged_nodes = xmalloc(sizeof(struct bvh_node) * primitive_count);
+    parallel_for(
+        thread_pool, mem_pool,
+        leaf_node_task,
+        (struct parallel_task*)&(struct leaf_node_task) {
+            .primitive_indices = primitive_indices,
+            .primitive_data = primitive_data,
+            .bbox_fn = bbox_fn,
+            .leaves = unmerged_nodes
+        },
+        sizeof(struct morton_code_task),
+        (size_t[3]) { 0 },
+        (size_t[3]) { primitive_count, 1, 1 });
+
+
+    // Merge nodes, level by level
+    size_t node_count = 2 * primitive_count - 1;
+    size_t* neighbors = xmalloc(sizeof(size_t) * primitive_count);
+    struct bvh_node* merged_nodes = xmalloc(sizeof(struct bvh_node) * node_count);
+    struct bvh_node* unmerged_nodes_copy = xmalloc(sizeof(struct bvh_node) * primitive_count);
+
+    size_t unmerged_count = primitive_count;
+    size_t merged_index = node_count - primitive_count;
+    while (unmerged_count > 1) {
+        // Fill in the neighbor array
+        parallel_for(
+            thread_pool, mem_pool,
+            neighbor_task,
+            (struct parallel_task*)&(struct neighbor_task) {
+                .nodes = unmerged_nodes,
+                .node_count = unmerged_count,
+                .neighbors = neighbors
+            },
+            sizeof(struct morton_code_task),
+            (size_t[3]) { 0 },
+            (size_t[3]) { primitive_count, 1, 1 });
+
+        // Merge nodes using the computed neighbor array
+        merge_nodes(
+            thread_pool, mem_pool,
+            &unmerged_nodes, &unmerged_nodes_copy, &unmerged_count,
+            merged_nodes, &merged_index,
+            neighbors);
+
+        swap_nodes(&unmerged_nodes, &unmerged_nodes_copy);
+    }
+    free(neighbors);
+    free(unmerged_nodes);
+
+    return (struct bvh) {
+        .nodes = merged_nodes,
+        .primitive_indices = primitive_indices
+    };
 }
 
 // Ray traversal ------------------------------------------------------------------------

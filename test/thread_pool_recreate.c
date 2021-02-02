@@ -27,7 +27,7 @@ int main() {
         wait_for_completion(pool, 0);
         free_thread_pool(pool);
         if (a != 1) {
-            printf("\nTest failed after %zu iteration(s)", i);
+            fprintf(stderr, "Test failed after %zu iteration(s)\n", i);
             status = EXIT_FAILURE;
             break;
         }

@@ -1,5 +1,5 @@
-#ifndef CORE_PARALLEL_H
-#define CORE_PARALLEL_H
+#ifndef CORE_PARALLEL_FOR_H
+#define CORE_PARALLEL_FOR_H
 
 #include <stddef.h>
 

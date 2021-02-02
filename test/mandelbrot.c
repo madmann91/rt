@@ -6,7 +6,7 @@
 #include <time.h>
 #include <assert.h>
 
-#include "core/parallel.h"
+#include "core/parallel_for.h"
 #include "core/utils.h"
 
 struct global_data {

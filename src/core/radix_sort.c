@@ -1,19 +1,23 @@
 #include <stdint.h>
 #include <assert.h>
 #include <string.h>
+#include <limits.h>
 
 #include "core/radix_sort.h"
 #include "core/utils.h"
 
 #define RADIX_SORT_BITS 8
 #define BIN_COUNT (1 << RADIX_SORT_BITS)
+#define BINNING_MASK(T) \
+    (((T)-1) >> ( \
+        sizeof(T) * CHAR_BIT > RADIX_SORT_BITS ? \
+        sizeof(T) * CHAR_BIT - RADIX_SORT_BITS : 0))
 
 struct binning_task {
     struct work_item work_item;
     size_t begin, end;
     void** src_keys;
     unsigned first_bit;
-    unsigned last_bit;
     size_t bins[BIN_COUNT];
 };
 
@@ -21,7 +25,7 @@ struct binning_task {
     static void binning_##name(struct work_item* work_item) { \
         struct binning_task* binning_task = (void*)work_item; \
         const T* keys = *binning_task->src_keys; \
-        T mask = (1 << (binning_task->last_bit - binning_task->first_bit)) - 1; \
+        T mask = BINNING_MASK(T); \
         T shift = binning_task->first_bit; \
         memset(binning_task->bins, 0, sizeof(size_t) * BIN_COUNT); \
         for (size_t i = binning_task->begin, n = binning_task->end; i < n; ++i) \
@@ -86,10 +90,10 @@ struct copy_task {
         const size_t* src_values = *copy_task->src_values; \
         T* dst_keys = *copy_task->dst_keys; \
         size_t* dst_values = *copy_task->dst_values; \
-        T mask = (1 << (this_binning_task->last_bit - this_binning_task->first_bit)) - 1; \
+        T mask = BINNING_MASK(T); \
         T shift = this_binning_task->first_bit; \
         for (size_t i = copy_task->begin, n = copy_task->end; i < n; ++i) { \
-            size_t index = this_binning_task->bins[(src_keys[i] >> shift) & mask]; \
+            size_t index = this_binning_task->bins[(src_keys[i] >> shift) & mask]++; \
             dst_keys[index] = src_keys[i]; \
             dst_values[index] = src_values[i]; \
         } \
@@ -107,17 +111,8 @@ static const work_fn_t copy_fns[] = {
     [sizeof(uint64_t)] = copy_64_bit
 };
 
-static inline void swap_keys(void** src, void** dst) {
-    void* tmp = *src;
-    *src = *dst;
-    *dst = tmp;
-}
-
-static inline void swap_values(size_t** src, size_t** dst) {
-    size_t* tmp = *src;
-    *src = *dst;
-    *dst = tmp;
-}
+SWAP(keys, void*)
+SWAP(values, size_t*)
 
 void radix_sort(
     struct thread_pool* thread_pool,
@@ -126,6 +121,7 @@ void radix_sort(
     void** dst_keys, size_t** dst_values,
     size_t key_size, size_t count, unsigned bit_count)
 {
+    size_t prev_used_mem = get_used_mem(*mem_pool);
     size_t thread_count = get_thread_count(thread_pool);
     struct binning_task* binning_tasks = alloc_from_pool(mem_pool,
         sizeof(struct binning_task) * thread_count);
@@ -137,7 +133,7 @@ void radix_sort(
 
     assert(key_size < ARRAY_SIZE(binning_fns) && binning_fns[key_size]);
     size_t data_chunk_size = count / thread_count;
-    size_t bin_chunk_size  = count / thread_count;
+    size_t bin_chunk_size  = BIN_COUNT / thread_count;
     for (size_t j = 0; j < thread_count; ++j) {
         copy_tasks[j].begin = binning_tasks[j].begin = j * data_chunk_size;
         copy_tasks[j].end   = binning_tasks[j].end   = j == thread_count - 1 ? count : (j + 1) * data_chunk_size;
@@ -163,15 +159,14 @@ void radix_sort(
         for (size_t j = 0; j < thread_count; ++j) {
             binning_tasks[j].work_item.next = &binning_tasks[j + 1].work_item;
             binning_tasks[j].first_bit = i;
-            binning_tasks[j].last_bit  = i + RADIX_SORT_BITS;
         }
         binning_tasks[thread_count - 1].work_item.next = NULL;
         submit_work(thread_pool, &binning_tasks[0].work_item, &binning_tasks[thread_count - 1].work_item);
 
         // Reset the task data for summing and copying
-        for (size_t j = 0; j < thread_count; ++j) {
-            sum_tasks[j].work_item.next  = &sum_tasks[j + 1].work_item;
-            copy_tasks[j].work_item.next = &copy_tasks[j + 1].work_item;
+        for (size_t j = 1; j < thread_count; ++j) {
+            sum_tasks[j - 1].work_item.next  = &sum_tasks[j].work_item;
+            copy_tasks[j - 1].work_item.next = &copy_tasks[j].work_item;
         }
         copy_tasks[thread_count - 1].work_item.next = NULL;
         sum_tasks[thread_count - 1].work_item.next  = NULL;
@@ -189,5 +184,5 @@ void radix_sort(
         swap_values(src_values, dst_values);
     }
 
-    reset_mem_pool(mem_pool);
+    reset_mem_pool(mem_pool, prev_used_mem);
 }

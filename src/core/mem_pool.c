@@ -28,42 +28,75 @@ struct mem_pool* new_mem_pool(void) {
 }
 
 void free_mem_pool(struct mem_pool* mem_pool) {
-    while (mem_pool) {
-        struct mem_pool* prev = mem_pool->prev;
-        free(mem_pool);
-        mem_pool = prev;
+    struct mem_pool* cur = mem_pool->next;
+    while (cur) {
+        struct mem_pool* next = cur->next;
+        free(cur);
+        cur = next;
     }
+    cur = mem_pool->prev;
+    while (cur) {
+        struct mem_pool* prev = cur->prev;
+        free(cur);
+        cur = prev;
+    }
+    free(mem_pool);
+}
+
+size_t get_used_mem(const struct mem_pool* mem_pool) {
+    size_t used_mem = mem_pool->size;
+    struct mem_pool* cur = mem_pool->prev;
+    while (cur) {
+        used_mem += cur->size;
+        cur = cur->prev;
+    }
+    return used_mem;
+}
+
+static inline size_t remaining_size(const struct mem_pool* mem_pool) {
+    return mem_pool->cap - mem_pool->size;
 }
 
 void* alloc_from_pool(struct mem_pool** root, size_t size) {
-    struct mem_pool* pool = *root;
-    while (true) {
-        if (pool->cap - pool->size >= size) {
-            // Align to the maximum alignment requirement
-            void*  ptr = pool->data + pool->size;
-            size_t pad = size % sizeof(max_align_t);
-            pool->size += size + (pad == 0 ? 0 : sizeof(max_align_t) - pad);
-            *root = pool;
-            return ptr;
-        }
+    if (size == 0)
+        return NULL;
 
-        if (pool->next)
-            pool = pool->next;
+    // Align the size to the largest alignment requirement
+    size_t pad = size % sizeof(max_align_t);
+    size = pad != 0 ? size + sizeof(max_align_t) - pad : size;
+
+    // Find a block where the allocation can be made
+    struct mem_pool* cur = *root;
+    while (remaining_size(cur) < size) {
+        if (cur->next)
+            cur = cur->next;
         else {
-            struct mem_pool* next = new_mem_pool_with_cap(size > pool->cap ? size : pool->cap);
-            next->prev = pool;
-            pool = next;
+            struct mem_pool* next = new_mem_pool_with_cap(size > cur->cap ? size : cur->cap);
+            next->prev = cur;
+            cur->next  = next;
+            cur = next;
+            break;
         }
     }
+
+    void* ptr = cur->data + cur->size;
+    cur->size += size;
+    *root = cur;
+    return ptr;
 }
 
-void reset_mem_pool(struct mem_pool** root) {
-    struct mem_pool* pool = *root;
-    struct mem_pool* first = pool;
-    while (pool) {
-        pool->size = 0;
-        first = pool;
-        pool = pool->prev;
+void reset_mem_pool(struct mem_pool** root, size_t target_used_mem) {
+    struct mem_pool* cur = *root;
+    size_t used_mem = get_used_mem(cur);
+    while (cur->prev && used_mem > target_used_mem) {
+        if (used_mem - target_used_mem > cur->size) {
+            cur->size -= used_mem - target_used_mem;
+            break;
+        } else {
+            used_mem -= cur->size;
+            cur->size = 0;
+            cur = cur->prev;
+        }
     }
-    *root = first;
+    *root = cur;
 }

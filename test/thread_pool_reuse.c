@@ -26,7 +26,7 @@ int main() {
         submit_work(pool, &job.work_item, &job.work_item);
         wait_for_completion(pool, 0);
         if (a != 1) {
-            printf("\nTest failed after %zu iteration(s)", i);
+            fprintf(stderr, "Test failed after %zu iteration(s)\n", i);
             status = EXIT_FAILURE;
             break;
         }

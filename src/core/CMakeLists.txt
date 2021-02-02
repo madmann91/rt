@@ -9,8 +9,8 @@ add_library(rt_core
     alloc.h
     mem_pool.c
     mem_pool.h
-    parallel_for.c
-    parallel_for.h
+    parallel.c
+    parallel.h
     radix_sort.c
     radix_sort.h
     thread_pool.c

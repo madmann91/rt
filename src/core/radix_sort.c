@@ -2,8 +2,10 @@
 #include <assert.h>
 #include <string.h>
 #include <limits.h>
+#include <stdlib.h>
 
 #include "core/radix_sort.h"
+#include "core/alloc.h"
 #include "core/utils.h"
 
 #define RADIX_SORT_BITS 8
@@ -116,20 +118,16 @@ SWAP(values, size_t*)
 
 void radix_sort(
     struct thread_pool* thread_pool,
-    struct mem_pool** mem_pool,
     void** src_keys, size_t** src_values,
     void** dst_keys, size_t** dst_values,
     size_t key_size, size_t count, unsigned bit_count)
 {
-    size_t prev_used_mem = get_used_mem(*mem_pool);
     size_t thread_count = get_thread_count(thread_pool);
-    struct binning_task* binning_tasks = alloc_from_pool(mem_pool,
-        sizeof(struct binning_task) * thread_count);
-    struct copy_task* copy_tasks = alloc_from_pool(mem_pool,
-        sizeof(struct copy_task) * thread_count);
-    struct prefix_sum_task* sum_tasks = alloc_from_pool(mem_pool,
-        sizeof(struct prefix_sum_task) * thread_count);
-    size_t* shared_bins = alloc_from_pool(mem_pool, sizeof(size_t) * BIN_COUNT);
+
+    struct binning_task* binning_tasks = xmalloc(sizeof(struct binning_task) * thread_count);
+    struct copy_task* copy_tasks       = xmalloc(sizeof(struct copy_task) * thread_count);
+    struct prefix_sum_task* sum_tasks  = xmalloc(sizeof(struct prefix_sum_task) * thread_count);
+    size_t* shared_bins                = xmalloc(sizeof(size_t) * BIN_COUNT);
 
     assert(key_size < ARRAY_SIZE(binning_fns) && binning_fns[key_size]);
     size_t data_chunk_size = count / thread_count;
@@ -184,5 +182,8 @@ void radix_sort(
         swap_values(src_values, dst_values);
     }
 
-    reset_mem_pool(mem_pool, prev_used_mem);
+    free(binning_tasks);
+    free(sum_tasks);
+    free(copy_tasks);
+    free(shared_bins);
 }

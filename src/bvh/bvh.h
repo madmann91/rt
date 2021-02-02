@@ -5,7 +5,6 @@
 
 #include "core/config.h"
 #include "core/thread_pool.h"
-#include "core/mem_pool.h"
 #include "core/ray.h"
 #include "core/bbox.h"
 
@@ -33,7 +32,6 @@ typedef struct vec3 (*center_fn_t)(void* primitive_data, size_t index);
  */
 struct bvh build_bvh(
     struct thread_pool* thread_pool,
-    struct mem_pool** mem_pool,
     void* primitive_data,
     bbox_fn_t bbox_fn,
     center_fn_t center_fn,

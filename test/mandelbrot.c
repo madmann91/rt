@@ -6,7 +6,7 @@
 #include <time.h>
 #include <assert.h>
 
-#include "core/parallel_for.h"
+#include "core/parallel.h"
 #include "core/utils.h"
 
 struct global_data {
@@ -126,7 +126,6 @@ int main() {
 #else
     size_t thread_count = detect_system_thread_count();
     struct thread_pool* thread_pool = new_thread_pool(thread_count);
-    struct mem_pool* mem_pool = new_mem_pool();
     const char* output_file = "mandelbrot.ppm";
     printf("Thread pool with %zu thread(s) created\n", thread_count);
 #endif
@@ -139,7 +138,7 @@ int main() {
     }, &global_data);
 #else
     parallel_for(
-        thread_pool, &mem_pool,        
+        thread_pool,
         render_task,
         (struct parallel_task*)&(struct render_task) { .global_data = &global_data },
         sizeof(struct render_task),
@@ -151,7 +150,6 @@ int main() {
 
 #ifndef USE_OPENMP
     free_thread_pool(thread_pool);
-    free_mem_pool(mem_pool);
 #endif
     printf("Rendering took %g seconds\n", elapsed_seconds(&t_start, &t_end));
 

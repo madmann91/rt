@@ -28,7 +28,6 @@ int main() {
 
     size_t thread_count = detect_system_thread_count();
     struct thread_pool* thread_pool = new_thread_pool(thread_count);
-    struct mem_pool* mem_pool = new_mem_pool();
 
     struct timespec t_start;
     timespec_get(&t_start, TIME_UTC);
@@ -40,7 +39,7 @@ int main() {
         void* src_keys_p = src_keys;
         void* dst_keys_p = dst_keys;
         radix_sort(
-            thread_pool, &mem_pool,
+            thread_pool,
             &src_keys_p, &src_values,
             &dst_keys_p, &dst_values,
             sizeof(uint32_t),
@@ -51,7 +50,6 @@ int main() {
     struct timespec t_end;
     timespec_get(&t_end, TIME_UTC);
 
-    free_mem_pool(mem_pool);
     free_thread_pool(thread_pool);
 
     printf("Sorting took %g seconds\n", elapsed_seconds(&t_start, &t_end) / iter_count);

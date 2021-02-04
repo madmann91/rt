@@ -1,7 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "core/thread_pool.h"
+#include "scene/scene.h"
 
 static inline void usage(void) {
     fprintf(stderr,
@@ -13,7 +13,12 @@ static inline void usage(void) {
 }
 
 int main(int argc, char** argv) {
-    (void)argc, (void)argv;
-    usage();
-    return EXIT_FAILURE;
+    if (argc < 2)
+        return EXIT_FAILURE;
+    struct scene* scene = load_scene(argv[1]);
+    if (!scene)
+        return EXIT_FAILURE;
+    printf("%zu triangles\n", scene->tri_count);
+    free_scene(scene);
+    return 0;
 }

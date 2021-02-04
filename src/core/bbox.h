@@ -26,6 +26,10 @@ static inline real_t half_bbox_area(struct bbox bbox) {
     return (e._[0] + e._[1]) * e._[2] + e._[0] * e._[1];
 }
 
+static inline struct bbox point_bbox(struct vec3 p) {
+    return (struct bbox) { .min = p, .max = p };
+}
+
 static inline struct bbox empty_bbox(void) {
     return (struct bbox) {
         .min = (struct vec3) { {  REAL_MAX,  REAL_MAX,  REAL_MAX } },

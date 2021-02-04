@@ -1,17 +1,12 @@
 #include <stdlib.h>
-#include <stdint.h>
 #include <limits.h>
 #include <assert.h>
 
 #include "bvh/bvh.h"
-#include "core/vec3.h"
-#include "core/utils.h"
 #include "core/parallel.h"
-#include "core/alloc.h"
-#include "core/morton.h"
 #include "core/radix_sort.h"
-
-// BVH construction ---------------------------------------------------------------------
+#include "core/morton.h"
+#include "core/alloc.h"
 
 /* This construction algorithm is based on
  * "Parallel Locally-Ordered Clustering for Bounding Volume Hierarchy Construction",
@@ -28,22 +23,6 @@ static inline size_t search_end(size_t i, size_t n) {
     return i + SEARCH_RADIUS < n ? i + SEARCH_RADIUS : n;
 }
 
-static inline struct bbox get_node_bbox(const struct bvh_node* node) {
-    return (struct bbox) {
-        .min = (struct vec3) { { node->bounds[0], node->bounds[2], node->bounds[4] } },
-        .max = (struct vec3) { { node->bounds[1], node->bounds[3], node->bounds[5] } },
-    };
-}
-
-static inline void set_node_bbox(struct bvh_node* node, struct bbox bbox) {
-    node->bounds[0] = bbox.min._[0];
-    node->bounds[1] = bbox.max._[0];
-    node->bounds[2] = bbox.min._[1];
-    node->bounds[3] = bbox.max._[1];
-    node->bounds[4] = bbox.min._[2];
-    node->bounds[5] = bbox.max._[2];
-}
-
 struct centers_task {
     struct parallel_task task;
     center_fn_t center_fn;
@@ -52,7 +31,7 @@ struct centers_task {
     struct bbox center_bbox;
 };
 
-static void compute_centers_task(struct parallel_task* task) {
+static void run_centers_task(struct parallel_task* task) {
     struct centers_task* centers_task = (void*)task;
     for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i) {
         struct vec3 center = centers_task->center_fn(centers_task->primitive_data, i);
@@ -83,7 +62,7 @@ static void compute_centers(
     };
     reduce(
         thread_pool,
-        compute_centers_task,
+        run_centers_task,
         reduce_centers_task,
         &centers_task.task,
         sizeof(struct centers_task),
@@ -101,7 +80,7 @@ struct morton_task {
     const struct vec3* center_to_grid;
 };
 
-static void compute_morton_codes_task(struct parallel_task* task) {
+static void run_morton_task(struct parallel_task* task) {
     struct morton_task* morton_task = (void*)task;
     for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i) {
         uint32_t x = (morton_task->centers[i]._[0] - morton_task->centers_min->_[0]) * morton_task->center_to_grid->_[0]; 
@@ -135,7 +114,7 @@ static inline void compute_morton_codes(
         sub_vec3(center_bbox.max, center_bbox.min));
     parallel_for(
         thread_pool,
-        compute_morton_codes_task,
+        run_morton_task,
         (struct parallel_task*)&(struct morton_task) {
             .morton_codes = *morton_codes,
             .primitive_indices = *primitive_indices,
@@ -178,13 +157,13 @@ struct leaves_task {
     struct bvh_node* leaves;
 };
 
-static void construct_leaves_task(struct parallel_task* task) {
+static void run_leaves_task(struct parallel_task* task) {
     struct leaves_task* leaf_node_task = (void*)task;
     for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i) {
         struct bbox bbox = leaf_node_task->bbox_fn(
             leaf_node_task->primitive_data, leaf_node_task->primitive_indices[i]);
         struct bvh_node* leaf = &leaf_node_task->leaves[i];
-        set_node_bbox(leaf, bbox);
+        set_bvh_node_bbox(leaf, bbox);
         leaf->primitive_count = 1;
         leaf->first_child_or_primitive = i;
     }
@@ -197,15 +176,15 @@ struct neighbor_task {
     size_t node_count;
 };
 
-static void compute_neighbors_task(struct parallel_task* task) {
+static void run_neighbor_task(struct parallel_task* task) {
     struct neighbor_task* neighbor_task = (void*)task;
     for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i) {
         size_t best_neighbor = -1;
         real_t best_distance = REAL_MAX;
         for (size_t j = search_begin(i), n = search_end(i, neighbor_task->node_count); j < n; ++j) {
             real_t distance = half_bbox_area(union_bbox(
-                get_node_bbox(&neighbor_task->nodes[i]),
-                get_node_bbox(&neighbor_task->nodes[j])));
+                get_bvh_node_bbox(&neighbor_task->nodes[i]),
+                get_bvh_node_bbox(&neighbor_task->nodes[j])));
             if (distance < best_distance) {
                 best_distance = distance;
                 best_neighbor = j;
@@ -223,7 +202,7 @@ struct counting_task {
     size_t unmerged_count;
 };
 
-static void count_merged_nodes_task(struct work_item* work_item) {
+static void run_counting_task(struct work_item* work_item) {
     struct counting_task* counting_task = (void*)work_item;
     for (size_t i = counting_task->begin, n = counting_task->end; i < n; ++i) {
         size_t j = counting_task->neighbors[i];
@@ -245,7 +224,7 @@ struct merge_task {
     size_t merged_index;
 };
 
-static void merge_nodes_task(struct work_item* work_item) {
+static void run_merge_task(struct work_item* work_item) {
     struct merge_task* merge_task = (void*)work_item;
     for (size_t i = merge_task->begin, n = merge_task->end; i < n; ++i) {
         size_t j = merge_task->neighbors[i];
@@ -254,9 +233,9 @@ static void merge_nodes_task(struct work_item* work_item) {
                 struct bvh_node* unmerged_node =
                     &merge_task->dst_unmerged_nodes[merge_task->unmerged_index];
                 size_t first_child = merge_task->merged_index;
-                set_node_bbox(unmerged_node, union_bbox(
-                    get_node_bbox(&merge_task->src_unmerged_nodes[i]),
-                    get_node_bbox(&merge_task->src_unmerged_nodes[j])));
+                set_bvh_node_bbox(unmerged_node, union_bbox(
+                    get_bvh_node_bbox(&merge_task->src_unmerged_nodes[i]),
+                    get_bvh_node_bbox(&merge_task->src_unmerged_nodes[j])));
                 unmerged_node->primitive_count = 0;
                 unmerged_node->first_child_or_primitive = first_child;
                 merge_task->merged_nodes[first_child + 0] = merge_task->src_unmerged_nodes[i];
@@ -284,7 +263,7 @@ static void merge_nodes(
     // of the closest neighbor for each node.
     parallel_for(
         thread_pool,
-        compute_neighbors_task,
+        run_neighbor_task,
         (struct parallel_task*)&(struct neighbor_task) {
             .nodes = src_unmerged_nodes,
             .node_count = *unmerged_count,
@@ -296,14 +275,14 @@ static void merge_nodes(
 
     // Count how many nodes should be merged, and how many should not
     size_t thread_count = get_thread_count(thread_pool);
-    size_t chunk_size = *unmerged_count / thread_count;
+    size_t chunk_size = compute_chunk_size(*unmerged_count, thread_count);
     struct counting_task* counting_tasks = xmalloc(sizeof(struct counting_task) * thread_count);
     for (size_t i = 0; i < thread_count; ++i) {
-        counting_tasks[i].work_item.work_fn = count_merged_nodes_task;
+        counting_tasks[i].work_item.work_fn = run_counting_task;
         counting_tasks[i].work_item.next = &counting_tasks[i + 1].work_item;
         counting_tasks[i].neighbors = neighbors;
-        counting_tasks[i].begin = i * chunk_size;
-        counting_tasks[i].end = i != thread_count - 1 ? (i + 1) * chunk_size : *unmerged_count;
+        counting_tasks[i].begin = compute_chunk_begin(chunk_size, i, *unmerged_count);
+        counting_tasks[i].end   = compute_chunk_end(chunk_size, i, *unmerged_count);
         counting_tasks[i].merged_count = 0;
         counting_tasks[i].unmerged_count = 0;
     }
@@ -325,10 +304,10 @@ static void merge_nodes(
     size_t cur_unmerged_index = 0;
     struct merge_task* merge_tasks = xmalloc(sizeof(struct merge_task) * thread_count);
     for (size_t i = 0; i < thread_count; ++i) {
-        merge_tasks[i].work_item.work_fn = merge_nodes_task;
+        merge_tasks[i].work_item.work_fn = run_merge_task;
         merge_tasks[i].work_item.next = &merge_tasks[i + 1].work_item;
-        merge_tasks[i].begin = i * chunk_size;
-        merge_tasks[i].end = i != thread_count - 1 ? (i + 1) * chunk_size : *unmerged_count;
+        merge_tasks[i].begin = counting_tasks[i].begin;
+        merge_tasks[i].end   = counting_tasks[i].end;
         merge_tasks[i].merged_index   = cur_merged_index;
         merge_tasks[i].unmerged_index = cur_unmerged_index;
         merge_tasks[i].neighbors = neighbors;
@@ -374,7 +353,7 @@ struct bvh build_bvh(
     struct bvh_node* dst_unmerged_nodes = xmalloc(sizeof(struct bvh_node) * primitive_count);
     parallel_for(
         thread_pool,
-        construct_leaves_task,
+        run_leaves_task,
         (struct parallel_task*)&(struct leaves_task) {
             .primitive_indices = primitive_indices,
             .primitive_data = primitive_data,
@@ -407,163 +386,10 @@ struct bvh build_bvh(
     free(src_unmerged_nodes);
     free(dst_unmerged_nodes);
 
-    return (struct bvh) {
+    struct bvh bvh = {
         .nodes = merged_nodes,
-        .primitive_indices = primitive_indices
+        .primitive_indices = primitive_indices,
+        .node_count = node_count
     };
-}
-
-// Ray traversal ------------------------------------------------------------------------
-
-/* The robust traversal implementation is inspired from T. Ize's "Robust BVH Ray Traversal"
- * article. It is only enabled when USE_ROBUST_BVH_TRAVERSAL is defined.
- */
-
-struct ray_data {
-#ifdef USE_ROBUST_BVH_TRAVERSAL
-    struct vec3 inv_dir;
-    struct vec3 padded_inv_dir;
-#else
-    struct vec3 inv_dir;
-    struct vec3 scaled_org;
-#endif
-    int octant[3];
-};
-
-static inline real_t intersect_axis_min(
-    int axis, real_t p,
-    const struct ray* ray,
-    const struct ray_data* ray_data)
-{
-#ifdef USE_ROBUST_BVH_TRAVERSAL
-    return (p - ray->org._[axis]) * ray_data->inv_dir._[axis];
-#else
-    (void)ray;
-    return fast_mul_add(p, ray_data->inv_dir._[axis], ray_data->scaled_org._[axis]); 
-#endif
-}
-
-static inline real_t intersect_axis_max(
-    int axis, real_t p,
-    const struct ray* ray,
-    const struct ray_data* ray_data)
-{
-#ifdef USE_ROBUST_BVH_TRAVERSAL
-    return (p - ray->org._[axis]) * ray_data->padded_inv_dir._[axis];
-#else
-    return intersect_axis_min(axis, p, ray, ray_data);
-#endif
-}
-
-static inline void compute_ray_data(const struct ray* ray, struct ray_data* ray_data) {
-#ifdef USE_ROBUST_BVH_TRAVERSAL
-    ray_data->inv_dir._[0] = safe_inverse(ray->dir._[0]);
-    ray_data->inv_dir._[1] = safe_inverse(ray->dir._[1]);
-    ray_data->inv_dir._[2] = safe_inverse(ray->dir._[2]);
-    ray_data->padded_inv_dir._[0] = add_ulp_magnitude(ray_data->inv_dir._[0], 2);
-    ray_data->padded_inv_dir._[1] = add_ulp_magnitude(ray_data->inv_dir._[1], 2);
-    ray_data->padded_inv_dir._[2] = add_ulp_magnitude(ray_data->inv_dir._[2], 2);
-#else
-    ray_data->inv_dir._[0] = safe_inverse(ray->dir._[0]);
-    ray_data->inv_dir._[1] = safe_inverse(ray->dir._[1]);
-    ray_data->inv_dir._[2] = safe_inverse(ray->dir._[2]);
-    ray_data->scaled_org._[0] = -ray->dir._[0] * ray_data->inv_dir._[0];
-    ray_data->scaled_org._[1] = -ray->dir._[1] * ray_data->inv_dir._[1];
-    ray_data->scaled_org._[2] = -ray->dir._[2] * ray_data->inv_dir._[2];
-#endif
-    ray_data->octant[0] = signbit(ray->dir._[0]);
-    ray_data->octant[1] = signbit(ray->dir._[1]);
-    ray_data->octant[2] = signbit(ray->dir._[2]);
-}
-
-static inline bool intersect_node(
-    const struct ray* ray,
-    const struct ray_data* ray_data,
-    const struct bvh_node* node,
-    real_t* t_entry)
-{
-    real_t tmin_x = intersect_axis_min(0, node->bounds[0 + ray_data->octant[0]], ray, ray_data);
-    real_t tmin_y = intersect_axis_min(1, node->bounds[2 + ray_data->octant[1]], ray, ray_data);
-    real_t tmin_z = intersect_axis_min(2, node->bounds[4 + ray_data->octant[2]], ray, ray_data);
-    real_t tmax_x = intersect_axis_max(0, node->bounds[0 + 1 - ray_data->octant[0]], ray, ray_data);
-    real_t tmax_y = intersect_axis_max(1, node->bounds[2 + 1 - ray_data->octant[1]], ray, ray_data);
-    real_t tmax_z = intersect_axis_max(2, node->bounds[4 + 1 - ray_data->octant[2]], ray, ray_data);
-
-    real_t tmin = max_real(max_real(tmin_x, tmin_y), max_real(tmin_z, ray->t_min));
-    real_t tmax = min_real(min_real(tmax_x, tmax_y), min_real(tmax_z, ray->t_max));
-
-    *t_entry = tmin;
-    return tmin <= tmax;
-}
-
-bool intersect_bvh(
-    void* intersection_data,
-    intersect_leaf_fn_t intersect_leaf,
-    const struct bvh* bvh, 
-    struct ray* ray, struct hit* hit, bool any)
-{
-    struct ray_data ray_data;
-    compute_ray_data(ray, &ray_data);
-
-    // Special case when the root node is a leaf
-    if (unlikely(bvh->nodes->primitive_count > 0)) {
-        real_t t_entry;
-        return
-            intersect_node(ray, &ray_data, bvh->nodes, &t_entry) &&
-            intersect_leaf(intersection_data, bvh->nodes, ray, hit);
-    }
-
-    // General case
-    bits_t stack[bvh->depth];
-    size_t stack_size = 0;
-
-    const struct bvh_node* left = bvh->nodes + bvh->nodes->first_child_or_primitive;
-    while (true) {
-        const struct bvh_node* right = left + 1;
-
-        // Intersect the two children together
-        real_t t_entry[2];
-        bool hit_left  = intersect_node(ray, &ray_data, left,  t_entry + 0);
-        bool hit_right = intersect_node(ray, &ray_data, right, t_entry + 1);
-
-#define INTERSECT_CHILD(child) \
-        if (hit_##child) { \
-            if (unlikely(child->primitive_count > 0)) { \
-                if (intersect_leaf(intersection_data, child, ray, hit) && any) \
-                    return true; \
-                child = NULL; \
-            } \
-        } else \
-            child = NULL;
-
-        INTERSECT_CHILD(left)
-        INTERSECT_CHILD(right)
-
-#undef INTERSECT_CHILD
-
-        if (left) {
-            // The left child was intersected
-            if (right) {
-                // Both children were intersected, we need to sort them based
-                // on their distances (only in closest intersection mode).
-                if (!any && t_entry[0] > t_entry[1]) {
-                    const struct bvh_node* tmp = left;
-                    left = right;
-                    right = tmp;
-                }
-                stack[stack_size++] = right->first_child_or_primitive;
-            }
-            left = bvh->nodes + left->first_child_or_primitive;
-        } else if (right) {
-            // Only the right child was intersected
-            left = bvh->nodes + right->first_child_or_primitive;
-        } else {
-            // No intersection was found
-            if (stack_size == 0)
-                break;
-            left = bvh->nodes + stack[--stack_size];
-        }
-    }
-
-    return hit->primitive_index != INVALID_PRIMITIVE_INDEX;
+    return bvh;
 }

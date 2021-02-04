@@ -3,6 +3,7 @@ add_library(rt_core
     bbox.h
     ray.h
     rgb.h
+    vec2.h
     vec3.h
     utils.h
     alloc.c

@@ -17,6 +17,7 @@ typedef uint64_t bits_t;
 #ifdef FP_FAST_FMA
 #define FAST_REAL_FMA
 #endif
+#define strtoreal strtod
 #else
 typedef float real_t;
 typedef uint32_t bits_t;
@@ -25,6 +26,7 @@ typedef uint32_t bits_t;
 #ifdef FP_FAST_FMAF
 #define FAST_REAL_FMA
 #endif
+#define strtoreal strtof
 #endif
 
 #if defined(__GNUC__) || defined(__CLANG__)

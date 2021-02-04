@@ -18,6 +18,7 @@ struct bvh {
     struct bvh_node* nodes;    // The root is located at nodes[0]
     size_t* primitive_indices; // Reordered primitive indices such that leaves index into that array.
     size_t depth;              // By convention, 0 means that the root is a leaf
+    size_t node_count;
 };
 
 /* Bounding box and cent callbacks used by the construction algorithm
@@ -25,6 +26,22 @@ struct bvh {
  */
 typedef struct bbox (*bbox_fn_t)(void* primitive_data, size_t index);
 typedef struct vec3 (*center_fn_t)(void* primitive_data, size_t index);
+
+static inline struct bbox get_bvh_node_bbox(const struct bvh_node* node) {
+    return (struct bbox) {
+        .min = (struct vec3) { { node->bounds[0], node->bounds[2], node->bounds[4] } },
+        .max = (struct vec3) { { node->bounds[1], node->bounds[3], node->bounds[5] } },
+    };
+}
+
+static inline void set_bvh_node_bbox(struct bvh_node* node, struct bbox bbox) {
+    node->bounds[0] = bbox.min._[0];
+    node->bounds[1] = bbox.max._[0];
+    node->bounds[2] = bbox.min._[1];
+    node->bounds[3] = bbox.max._[1];
+    node->bounds[4] = bbox.min._[2];
+    node->bounds[5] = bbox.max._[2];
+}
 
 /* Builds a BVH for a set of primitives with the given
  * bounding boxes and centers. The thread pool is used to
@@ -36,6 +53,16 @@ struct bvh build_bvh(
     bbox_fn_t bbox_fn,
     center_fn_t center_fn,
     size_t primitive_count);
+
+/* Collapses BVH leaves according to the SAH. The traversal cost
+ * is expressed as a ratio of the cost of traversing a node vs.
+ * the cost of intersecting a primitive.
+ */
+
+void collapse_leaves(
+    struct thread_pool* thread_pool,
+    struct bvh* bvh,
+    real_t traversal_cost);
 
 /* Intersection callback used by the traversal function
  * to intersect the contents of a leaf.

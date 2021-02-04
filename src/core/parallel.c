@@ -27,12 +27,6 @@ static inline void init_tasks(
     }
 }
 
-static inline size_t derive_chunk_count(size_t elem_count, size_t task_count) {
-    if (task_count * 2 >= elem_count)
-        return 1;
-    return elem_count / (task_count * 2);
-}
-
 static void run_tasks(
     struct thread_pool* thread_pool,
     struct parallel_task* tasks,
@@ -45,11 +39,9 @@ static void run_tasks(
     struct parallel_task* first_task    = tasks;
     struct parallel_task* previous_task = NULL;
 
-    size_t chunk_count[3], chunk_size[3];
-    for (int i = 0; i < 3; ++i) {
-        chunk_count[i] = derive_chunk_count(end[i] - begin[i], task_count);
-        chunk_size[i] = (end[i] - begin[i]) / chunk_count[i];
-    }
+    size_t chunk_size[3];
+    for (int i = 0; i < 3; ++i)
+        chunk_size[i] = compute_chunk_size(end[i] - begin[i], task_count);
     for (size_t i = begin[2]; i < end[2]; i += chunk_size[2]) {
         size_t next_i = i + chunk_size[2] > end[2] ? end[2] : i + chunk_size[2];
         for (size_t j = begin[1]; j < end[1]; j += chunk_size[1]) {

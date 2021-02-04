@@ -6,6 +6,7 @@
 #include <tgmath.h>
 
 #include "core/config.h"
+#include "core/alloc.h"
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 #define SWAP(name, T) \
@@ -61,6 +62,17 @@ static inline double elapsed_seconds(const struct timespec* t_start, const struc
     return
         (double)(t_end->tv_sec - t_start->tv_sec) +
         (double)(t_end->tv_nsec - t_start->tv_nsec) * 1.0e-9;
+}
+
+static inline char* copy_str_n(const char* p, size_t n) {
+    char* q = xmalloc(n + 1);
+    memcpy(q, p, n);
+    q[n] = 0;
+    return q;
+}
+
+static inline char* copy_str(const char* p) {
+    return copy_str_n(p, strlen(p));
 }
 
 #endif

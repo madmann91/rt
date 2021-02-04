@@ -1,3 +1,5 @@
 add_subdirectory(core)
 add_subdirectory(bvh)
+add_subdirectory(loaders)
+add_subdirectory(scene)
 add_subdirectory(frontend)

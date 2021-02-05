@@ -149,13 +149,13 @@ static bool parse_obj(FILE* fp, const char* file_name, struct obj* obj) {
             bool valid = f.index_count >= 3;
             for (size_t i = f.first_index, n = f.first_index + f.index_count; i < n && valid; i++) {
                 struct obj_index* index = &indices.data[i];
-                index->v = index->v < 0 ? (int)vertices.size   + index->v + 1 : index->v;
-                index->t = index->t < 0 ? (int)tex_coords.size + index->t + 1 : index->t;
-                index->n = index->n < 0 ? (int)normals.size    + index->n + 1 : index->n;
+                index->v = index->v < 0 ? (long long)vertices.size   + index->v + 1 : index->v;
+                index->t = index->t < 0 ? (long long)tex_coords.size + index->t + 1 : index->t;
+                index->n = index->n < 0 ? (long long)normals.size    + index->n + 1 : index->n;
                 valid &= index->v >= 1;
-                valid &= index->v <= vertices.size;
-                valid &= index->t <= tex_coords.size;
-                valid &= index->n <= normals.size;
+                valid &= index->v <= (long long)vertices.size;
+                valid &= index->t <= (long long)tex_coords.size;
+                valid &= index->n <= (long long)normals.size;
             }
 
             if (valid)

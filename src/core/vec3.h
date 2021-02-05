@@ -51,7 +51,7 @@ static inline struct vec3 scale_vec3(struct vec3 a, real_t f) {
 }
 
 static inline real_t dot_vec3(struct vec3 a, struct vec3 b) {
-    return a._[0] * b._[0] + a._[1] * b._[1] + a._[2] * b._[2];
+    return fast_mul_add(a._[0], b._[0], fast_mul_add(a._[1], b._[1], a._[2] * b._[2]));
 }
 
 static inline struct vec3 cross_vec3(struct vec3 a, struct vec3 b) {

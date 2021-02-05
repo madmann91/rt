@@ -189,7 +189,7 @@ static void run_neighbor_task(struct parallel_task* task) {
         real_t best_distance = REAL_MAX;
         struct bbox this_bbox = get_bvh_node_bbox(&neighbor_task->nodes[i]);
         for (size_t j = search_begin(i), n = search_end(i, neighbor_task->node_count); j < n; ++j) {
-            if (j == i)
+            if (unlikely(j == i))
                 continue;
             struct bbox other_bbox = get_bvh_node_bbox(&neighbor_task->nodes[j]);
             real_t distance = half_bbox_area(union_bbox(this_bbox, other_bbox));
@@ -285,7 +285,7 @@ static void merge_nodes(
         (size_t[3]) { *unmerged_count, 1, 1 });
 
     // Count how many nodes should be merged, and how many should not
-    size_t task_count = get_thread_count(thread_pool);
+    size_t task_count = get_thread_count(thread_pool) * 4;
     size_t chunk_size = compute_chunk_size(*unmerged_count, task_count);
     struct counting_task* counting_tasks = xmalloc(sizeof(struct counting_task) * task_count);
     for (size_t i = 0; i < task_count; ++i) {

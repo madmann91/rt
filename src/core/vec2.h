@@ -39,7 +39,7 @@ static inline struct vec2 scale_vec2(struct vec2 a, real_t f) {
 }
 
 static inline real_t dot_vec2(struct vec2 a, struct vec2 b) {
-    return a._[0] * b._[0] + a._[1] * b._[1];
+    return fast_mul_add(a._[0], b._[0], a._[1] * b._[1]);
 }
 
 #endif

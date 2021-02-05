@@ -45,26 +45,19 @@ static inline void set_bvh_node_bbox(struct bvh_node* node, struct bbox bbox) {
 
 /* Builds a BVH for a set of primitives with the given
  * bounding boxes and centers. The thread pool is used to
- * issue work to multiple threads.
+ * issue work to multiple threads. The traversal cost
+ * is expressed as a ratio of the cost of traversing a node vs.
+ * the cost of intersecting a primitive.
  */
 struct bvh build_bvh(
     struct thread_pool* thread_pool,
     void* primitive_data,
     bbox_fn_t bbox_fn,
     center_fn_t center_fn,
-    size_t primitive_count);
+    size_t primitive_count,
+    real_t traversal_cost);
 
 void free_bvh(struct bvh*);
-
-/* Collapses BVH leaves according to the SAH. The traversal cost
- * is expressed as a ratio of the cost of traversing a node vs.
- * the cost of intersecting a primitive.
- */
-
-void collapse_leaves(
-    struct thread_pool* thread_pool,
-    struct bvh* bvh,
-    real_t traversal_cost);
 
 /* Intersection callback used by the traversal function
  * to intersect the contents of a leaf.

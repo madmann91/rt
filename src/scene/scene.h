@@ -14,4 +14,10 @@ struct scene {
 struct scene* load_scene(const char* file_name);
 void free_scene(struct scene*);
 
+/* Intersects a ray with the scene.
+ * Returns when closest intersection is found if `any == false`, or
+ * when any intersection is found if `any == true`.
+ */
+bool intersect_ray_scene(struct ray* ray, const struct scene* scene, struct hit* hit, bool any);
+
 #endif

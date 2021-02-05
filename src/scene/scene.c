@@ -36,7 +36,7 @@ static inline struct vec3 get_tri_center(void* primitive_data, size_t index) {
 }
 
 static inline struct bvh build_tri_bvh(struct thread_pool* thread_pool, struct tri* tris, size_t tri_count) {
-    return build_bvh(thread_pool, tris, get_tri_bbox, get_tri_center, tri_count);
+    return build_bvh(thread_pool, tris, get_tri_bbox, get_tri_center, tri_count, 1.5);
 }
 
 struct scene* load_scene(const char* file_name) {
@@ -57,7 +57,7 @@ struct scene* load_scene(const char* file_name) {
     struct timespec t_end;
     timespec_get(&t_end, TIME_UTC);
 
-    printf("Building BVH took %g ms\n", elapsed_seconds(&t_start, &t_end) * 1.e3);
+    printf("Building BVH took %gms (%zu node(s))\n", elapsed_seconds(&t_start, &t_end) * 1.e3, scene->bvh.node_count);
     return scene;
 }
 
@@ -65,4 +65,43 @@ void free_scene(struct scene* scene) {
     free_bvh(&scene->bvh);
     free(scene->tris);
     free(scene);
+}
+
+static bool intersect_bvh_leaf_tris(
+    void* intersection_data,
+    const struct bvh_node* leaf,
+    struct ray* ray, struct hit* hit,
+    bool any)
+{
+    const struct tri* tris = intersection_data;
+    bool found = false;
+    for (size_t i = 0, j = leaf->first_child_or_primitive, n = leaf->primitive_count; i < n; ++i, ++j) {
+        found |= intersect_ray_tri(ray, &tris[j], hit);
+        if (any && found)
+            return true;
+    }
+    return found;
+}
+
+static bool intersect_bvh_leaf_tris_any(
+    void* intersection_data,
+    const struct bvh_node* leaf,
+    struct ray* ray, struct hit* hit)
+{
+    return intersect_bvh_leaf_tris(intersection_data, leaf, ray, hit, true);
+}
+
+static bool intersect_bvh_leaf_tris_closest(
+    void* intersection_data,
+    const struct bvh_node* leaf,
+    struct ray* ray, struct hit* hit)
+{
+    return intersect_bvh_leaf_tris(intersection_data, leaf, ray, hit, false);
+}
+
+bool intersect_ray_scene(struct ray* ray, const struct scene* scene, struct hit* hit, bool any) {
+    return intersect_bvh(
+        scene->tris,
+        any ? intersect_bvh_leaf_tris_any : intersect_bvh_leaf_tris_closest,
+        &scene->bvh, ray, hit, any);
 }

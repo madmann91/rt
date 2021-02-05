@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <limits.h>
 #include <assert.h>
 
@@ -9,6 +10,9 @@
 #include "core/morton.h"
 #include "core/alloc.h"
 #include "core/utils.h"
+
+SWAP(primitive_indices, size_t*)
+SWAP(nodes, struct bvh_node*)
 
 /* This construction algorithm is based on
  * "Parallel Locally-Ordered Clustering for Bounding Volume Hierarchy Construction",
@@ -75,11 +79,11 @@ static void compute_centers(
 
 struct morton_task {
     struct parallel_task task;
-    morton_t* morton_codes;
-    size_t* primitive_indices;
-    const struct vec3* centers;
-    const struct vec3* centers_min;
-    const struct vec3* center_to_grid;
+    morton_t* restrict morton_codes;
+    size_t* restrict primitive_indices;
+    const struct vec3* restrict centers;
+    const struct vec3* restrict centers_min;
+    const struct vec3* restrict center_to_grid;
 };
 
 static inline morton_t real_to_grid(real_t x) {
@@ -204,7 +208,7 @@ static void run_neighbor_task(struct parallel_task* task) {
     }
 }
 
-struct counting_task {
+struct merge_count_task {
     struct work_item work_item;
     size_t begin, end;
     const size_t* neighbors;
@@ -212,25 +216,25 @@ struct counting_task {
     size_t unmerged_count;
 };
 
-static void run_counting_task(struct work_item* work_item) {
-    struct counting_task* counting_task = (void*)work_item;
-    counting_task->merged_count = counting_task->unmerged_count = 0;
-    for (size_t i = counting_task->begin, n = counting_task->end; i < n; ++i) {
-        size_t j = counting_task->neighbors[i];
-        if (counting_task->neighbors[j] == i)
-            counting_task->merged_count += i < j ? 1 : 0;
+static void run_merge_count_task(struct work_item* work_item) {
+    struct merge_count_task* merge_count_task = (void*)work_item;
+    merge_count_task->merged_count = merge_count_task->unmerged_count = 0;
+    for (size_t i = merge_count_task->begin, n = merge_count_task->end; i < n; ++i) {
+        size_t j = merge_count_task->neighbors[i];
+        if (merge_count_task->neighbors[j] == i)
+            merge_count_task->merged_count += i < j ? 1 : 0;
         else
-            counting_task->unmerged_count++;
+            merge_count_task->unmerged_count++;
     }
 }
 
 struct merge_task {
     struct work_item work_item;
     size_t begin, end;
-    const size_t* neighbors;
-    const struct bvh_node* src_unmerged_nodes;
-    struct bvh_node* dst_unmerged_nodes;
-    struct bvh_node* merged_nodes;
+    const size_t* restrict neighbors;
+    const struct bvh_node* restrict src_unmerged_nodes;
+    struct bvh_node* restrict dst_unmerged_nodes;
+    struct bvh_node* restrict merged_nodes;
     size_t unmerged_index;
     size_t merged_index;
 };
@@ -287,21 +291,21 @@ static void merge_nodes(
     // Count how many nodes should be merged, and how many should not
     size_t task_count = get_thread_count(thread_pool) * 4;
     size_t chunk_size = compute_chunk_size(*unmerged_count, task_count);
-    struct counting_task* counting_tasks = xmalloc(sizeof(struct counting_task) * task_count);
+    struct merge_count_task* merge_count_tasks = xmalloc(sizeof(struct merge_count_task) * task_count);
     for (size_t i = 0; i < task_count; ++i) {
-        counting_tasks[i].work_item.work_fn = run_counting_task;
-        counting_tasks[i].work_item.next = &counting_tasks[i + 1].work_item;
-        counting_tasks[i].neighbors = neighbors;
-        counting_tasks[i].begin = compute_chunk_begin(chunk_size, i);
-        counting_tasks[i].end   = compute_chunk_end(chunk_size, i, *unmerged_count);
+        merge_count_tasks[i].work_item.work_fn = run_merge_count_task;
+        merge_count_tasks[i].work_item.next = &merge_count_tasks[i + 1].work_item;
+        merge_count_tasks[i].neighbors = neighbors;
+        merge_count_tasks[i].begin = compute_chunk_begin(chunk_size, i);
+        merge_count_tasks[i].end   = compute_chunk_end(chunk_size, i, *unmerged_count);
     }
-    counting_tasks[task_count - 1].work_item.next = NULL;
-    submit_work(thread_pool, &counting_tasks[0].work_item, &counting_tasks[task_count - 1].work_item);
+    merge_count_tasks[task_count - 1].work_item.next = NULL;
+    submit_work(thread_pool, &merge_count_tasks[0].work_item, &merge_count_tasks[task_count - 1].work_item);
     wait_for_completion(thread_pool, 0);
 
     size_t total_merged = 0;
     for (size_t i = 0; i < task_count; ++i)
-        total_merged += counting_tasks[i].merged_count;
+        total_merged += merge_count_tasks[i].merged_count;
     assert(total_merged > 0);
 
     // Merge nodes based on the results of the neighbor search
@@ -313,16 +317,16 @@ static void merge_nodes(
     for (size_t i = 0; i < task_count; ++i) {
         merge_tasks[i].work_item.work_fn = run_merge_task;
         merge_tasks[i].work_item.next = &merge_tasks[i + 1].work_item;
-        merge_tasks[i].begin = counting_tasks[i].begin;
-        merge_tasks[i].end   = counting_tasks[i].end;
+        merge_tasks[i].begin = merge_count_tasks[i].begin;
+        merge_tasks[i].end   = merge_count_tasks[i].end;
         merge_tasks[i].merged_index   = cur_merged_index;
         merge_tasks[i].unmerged_index = cur_unmerged_index;
         merge_tasks[i].neighbors = neighbors;
         merge_tasks[i].src_unmerged_nodes = src_unmerged_nodes;
         merge_tasks[i].dst_unmerged_nodes = dst_unmerged_nodes;
         merge_tasks[i].merged_nodes = merged_nodes;
-        cur_merged_index   += counting_tasks[i].merged_count * 2;
-        cur_unmerged_index += counting_tasks[i].merged_count + counting_tasks[i].unmerged_count;
+        cur_merged_index   += merge_count_tasks[i].merged_count * 2;
+        cur_unmerged_index += merge_count_tasks[i].merged_count + merge_count_tasks[i].unmerged_count;
     }
     merge_tasks[task_count - 1].work_item.next = NULL;
     submit_work(thread_pool, &merge_tasks[0].work_item, &merge_tasks[task_count - 1].work_item);
@@ -331,17 +335,327 @@ static void merge_nodes(
     wait_for_completion(thread_pool, 0);
 
     free(merge_tasks);
-    free(counting_tasks);
+    free(merge_count_tasks);
 }
 
-SWAP(nodes, struct bvh_node*)
+/* This algorithm collapses leaves according to the SAH. It is based on a bottom-up
+ * traversal, which is itself inspired from T. Karras's paper: "Maximizing Parallelism in
+ * the Construction of BVHs, Octrees, and k-d Trees".
+ */
+
+struct collapse_init_task {
+    struct parallel_task task;
+    const struct bvh_node* nodes;
+    size_t* node_counts;
+    size_t* parents;
+    atomic_int* flags;
+};
+
+static void run_collapse_init_task(struct parallel_task* task) {
+    struct collapse_init_task* collapse_init_task = (void*)task;
+    for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i) {
+        const struct bvh_node* node = &collapse_init_task->nodes[i];
+        collapse_init_task->node_counts[i] = 1;
+        atomic_store_explicit(&collapse_init_task->flags[i], 0, memory_order_relaxed);
+        if (node->primitive_count == 0) {
+            collapse_init_task->parents[node->first_child_or_primitive + 0] = i;
+            collapse_init_task->parents[node->first_child_or_primitive + 1] = i;
+        }
+    }
+}
+
+struct collapse_task {
+    struct parallel_task task;
+    const struct bvh_node* nodes;
+    size_t* restrict node_counts;
+    real_t traversal_cost;
+    size_t* restrict primitive_counts;
+    size_t* restrict parents;
+    atomic_int* flags;
+};
+
+static void run_collapse_task(struct parallel_task* task) {
+    struct collapse_task* collapse_task = (void*)task;
+    for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i) {
+        const struct bvh_node* node = &collapse_task->nodes[i];
+        if (node->primitive_count == 0)
+            continue;
+
+        collapse_task->primitive_counts[i] = node->primitive_count;
+
+        // Walk up the parents of this node towards the root
+        size_t j = i;
+        while (true) {
+            j = collapse_task->parents[j];
+            // Terminate this path if the root has been reached or the two children have not yet been processed
+            if (j == SIZE_MAX || atomic_fetch_add_explicit(&collapse_task->flags[j], 1, memory_order_relaxed) == 0)
+                break;
+            const struct bvh_node* node = &collapse_task->nodes[j];
+            assert(node->primitive_count == 0);
+
+            size_t first_child = node->first_child_or_primitive;
+            size_t left_count  = collapse_task->primitive_counts[first_child + 0];
+            size_t right_count = collapse_task->primitive_counts[first_child + 1];
+            // Both children must be leaves in order to collapse this node
+            if (left_count == 0 || right_count == 0)
+                break;
+
+            const struct bvh_node* left  = &collapse_task->nodes[first_child + 0];
+            const struct bvh_node* right = &collapse_task->nodes[first_child + 1];
+            size_t total_count = left_count + right_count;
+            float collapse_cost =
+                half_bbox_area(get_bvh_node_bbox(node)) * (total_count - collapse_task->traversal_cost);
+            float cost =
+                half_bbox_area(get_bvh_node_bbox(left))  * left_count +
+                half_bbox_area(get_bvh_node_bbox(right)) * right_count;
+            if (collapse_cost < cost) {
+                collapse_task->primitive_counts[j] = total_count;
+                collapse_task->primitive_counts[first_child + 0] = 0;
+                collapse_task->primitive_counts[first_child + 1] = 0;
+                collapse_task->node_counts[first_child + 0] = 0;
+                collapse_task->node_counts[first_child + 1] = 0;
+            }
+        }
+    }
+}
+
+struct collapse_count_task {
+    struct work_item work_item;
+    size_t begin, end;
+    const size_t* node_counts;
+    const size_t* primitive_counts;
+    size_t primitive_count;
+    size_t node_count;
+};
+
+static void run_counting_task(struct work_item* work_item) {
+    struct collapse_count_task* collapse_count_task = (void*)work_item;
+    collapse_count_task->primitive_count = 0;
+    collapse_count_task->node_count = 0;
+    for (size_t i = collapse_count_task->begin, n = collapse_count_task->end; i < n; ++i) {
+         collapse_count_task->primitive_count += collapse_count_task->primitive_counts[i];
+         collapse_count_task->node_count += collapse_count_task->node_counts[i];
+    }
+}
+
+struct rewrite_task {
+    struct work_item work_item;
+    size_t begin, end;
+    const struct bvh_node* src_nodes;
+    struct bvh_node* dst_nodes;
+    size_t* node_counts;
+    const size_t* parents;
+    const size_t* primitive_counts;
+    const size_t* src_primitive_indices;
+    size_t* dst_primitive_indices;
+    size_t first_node;
+    size_t first_primitive;
+};
+
+static size_t next_node_in_prefix_order(
+    const struct bvh_node* nodes,
+    const size_t* parents,
+    size_t node_index,
+    size_t root_index)
+{
+    while (node_index != root_index) {
+        size_t parent_index = parents[node_index];
+        assert(parent_index != SIZE_MAX);
+
+        if (nodes[parent_index].first_child_or_primitive == node_index) {
+            // If this node was in the left sub-tree, jump to the right one
+            return nodes[parent_index].first_child_or_primitive + 1;
+        }
+
+        node_index = parent_index;
+    }
+    return node_index;
+}
+
+static void copy_subtree_primitives(
+    const struct bvh_node* nodes,
+    size_t node_index,
+    const size_t* restrict parents,
+    const size_t* restrict src_primitive_indices,
+    size_t* restrict dst_primitive_indices,
+    size_t* restrict first_primitive)
+{
+    const size_t root_index = node_index;
+    while (true) {
+        const struct bvh_node* node = nodes + node_index;
+        if (node->primitive_count == 0) {
+            // Always descend to the left
+            node_index = node->first_child_or_primitive;
+        } else {
+            // Must be a leaf
+            memcpy(
+                dst_primitive_indices + *first_primitive,
+                src_primitive_indices + node->first_child_or_primitive,
+                sizeof(size_t) * node->primitive_count);
+            *first_primitive += node->primitive_count;
+
+            node_index = next_node_in_prefix_order(nodes, parents, node_index, root_index);
+            if (node_index == root_index)
+                return;
+        }
+    }
+}
+
+static void run_rewrite_task(struct work_item* work_item) {
+    struct rewrite_task* rewrite_task = (void*)work_item;
+    for (size_t i = rewrite_task->begin, n = rewrite_task->end; i < n; ++i) {
+        if (rewrite_task->node_counts[i] == 0)
+            continue;
+        size_t dst_index = rewrite_task->node_counts[i] = rewrite_task->first_node++;
+        struct bvh_node* dst_node = &rewrite_task->dst_nodes[dst_index];
+        *dst_node = rewrite_task->src_nodes[i];
+        if (rewrite_task->primitive_counts[i] != 0) {
+            dst_node->first_child_or_primitive = rewrite_task->first_primitive;
+            dst_node->primitive_count = rewrite_task->primitive_counts[i];
+            copy_subtree_primitives(
+                rewrite_task->src_nodes, i,
+                rewrite_task->parents,
+                rewrite_task->src_primitive_indices,
+                rewrite_task->dst_primitive_indices,
+                &rewrite_task->first_primitive);
+            assert(rewrite_task->first_primitive ==
+                dst_node->first_child_or_primitive +
+                dst_node->primitive_count);
+        }
+    }
+}
+
+struct rewire_task {
+    struct parallel_task task;
+    struct bvh_node* nodes;
+    size_t* node_indices;
+};
+
+static void run_rewire_task(struct parallel_task* task) {
+    struct rewire_task* rewire_task = (void*)task;
+    for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i) {
+        struct bvh_node* node = &rewire_task->nodes[i];
+        if (node->primitive_count == 0)
+            node->first_child_or_primitive = rewire_task->node_indices[node->first_child_or_primitive];
+    }
+}
+
+static void collapse_leaves(struct thread_pool* thread_pool, struct bvh* bvh, real_t traversal_cost) {
+    size_t* parents     = xmalloc(sizeof(size_t) * bvh->node_count);
+    atomic_int* flags   = xmalloc(sizeof(atomic_int) * bvh->node_count);
+    size_t* node_counts = xmalloc(sizeof(size_t) * bvh->node_count);
+
+    // Initialize parent indices and flags
+    parallel_for(
+        thread_pool,
+        run_collapse_init_task,
+        (struct parallel_task*)&(struct collapse_init_task) {
+            .nodes       = bvh->nodes,
+            .parents     = parents,
+            .flags       = flags,
+            .node_counts = node_counts
+        },
+        sizeof(struct collapse_init_task),
+        (size_t[3]) { 0 },
+        (size_t[3]) { bvh->node_count, 1, 1 });
+    parents[0] = SIZE_MAX;
+
+    // Traverse the BVH from bottom to top, collapsing leaves on the way
+    size_t* primitive_counts = xcalloc(bvh->node_count, sizeof(size_t));
+    parallel_for(
+        thread_pool,
+        run_collapse_task,
+        (struct parallel_task*)&(struct collapse_task) {
+            .primitive_counts = primitive_counts,
+            .traversal_cost   = traversal_cost,
+            .nodes            = bvh->nodes,
+            .parents          = parents,
+            .flags            = flags,
+            .node_counts      = node_counts
+        },
+        sizeof(struct collapse_task),
+        (size_t[3]) { 0 },
+        (size_t[3]) { bvh->node_count, 1, 1 });
+
+    // Perform a sum of the primitives contained in each chunk of the BVH.
+    // Since leaves will most likely be in small parts of the BVH, it is
+    // important to have enough tasks to process the array of nodes to
+    // balance the workload efficiently.
+    size_t task_count   = get_thread_count(thread_pool) * 4;
+    size_t chunk_size   = compute_chunk_size(bvh->node_count, task_count);
+    struct collapse_count_task* collapse_count_tasks = xmalloc(sizeof(struct collapse_count_task) * task_count);
+    struct rewrite_task*  rewrite_tasks = xmalloc(sizeof(struct rewrite_task) * task_count);
+    for (size_t i = 0; i < task_count; ++i) {
+        collapse_count_tasks[i].work_item.work_fn = run_counting_task;
+        collapse_count_tasks[i].work_item.next    = &collapse_count_tasks[i + 1].work_item;
+        collapse_count_tasks[i].primitive_counts  = primitive_counts;
+        collapse_count_tasks[i].node_counts       = node_counts;
+        rewrite_tasks[i].begin = collapse_count_tasks[i].begin = compute_chunk_begin(chunk_size, i);
+        rewrite_tasks[i].end   = collapse_count_tasks[i].end   = compute_chunk_end(chunk_size, i, bvh->node_count);
+    }
+    collapse_count_tasks[task_count - 1].work_item.next = NULL;
+    submit_work(thread_pool, &collapse_count_tasks[0].work_item, &collapse_count_tasks[task_count - 1].work_item);
+    wait_for_completion(thread_pool, 0);
+
+    // Now rewrite the primitive indices based on the previously computed sums
+    size_t first_primitive = 0, first_node = 0;
+    for (size_t i = 0; i < task_count; ++i) {
+        rewrite_tasks[i].work_item.work_fn = run_rewrite_task;
+        rewrite_tasks[i].work_item.next    = &rewrite_tasks[i + 1].work_item;
+        rewrite_tasks[i].primitive_counts  = primitive_counts;
+        rewrite_tasks[i].node_counts       = node_counts;
+        rewrite_tasks[i].first_primitive   = first_primitive;
+        rewrite_tasks[i].first_node        = first_node;
+        rewrite_tasks[i].parents           = parents;
+        first_primitive += collapse_count_tasks[i].primitive_count;
+        first_node += collapse_count_tasks[i].node_count;
+    }
+    assert(first_primitive < bvh->node_count);
+    rewrite_tasks[task_count - 1].work_item.next = NULL;
+
+    size_t primitive_count = first_primitive, node_count = first_node;
+    size_t* dst_primitive_indices = xmalloc(sizeof(size_t) * primitive_count);
+    struct bvh_node* dst_nodes = xmalloc(sizeof(struct bvh_node) * node_count);
+    for (size_t i = 0; i < task_count; ++i) {
+        rewrite_tasks[i].src_nodes = bvh->nodes;
+        rewrite_tasks[i].dst_nodes = dst_nodes;
+        rewrite_tasks[i].src_primitive_indices = bvh->primitive_indices;
+        rewrite_tasks[i].dst_primitive_indices = dst_primitive_indices;
+    }
+    submit_work(thread_pool, &rewrite_tasks[0].work_item, &rewrite_tasks[task_count - 1].work_item);
+    wait_for_completion(thread_pool, 0);
+
+    // Finally, rewire children indices in the rewritten BVH
+    parallel_for(
+        thread_pool,
+        run_rewire_task,
+        (struct parallel_task*)&(struct rewire_task) {
+            .nodes            = bvh->nodes,
+            .node_indices     = node_counts
+        },
+        sizeof(struct rewire_task),
+        (size_t[3]) { 0 },
+        (size_t[3]) { node_count, 1, 1 });
+    bvh->node_count = node_count;
+
+    swap_primitive_indices(&bvh->primitive_indices, &dst_primitive_indices);
+    swap_nodes(&bvh->nodes, &dst_nodes);
+
+    free(dst_primitive_indices);
+    free(collapse_count_tasks);
+    free(rewrite_tasks);
+    free(primitive_counts);
+    free(flags);
+    free(parents);
+}
 
 struct bvh build_bvh(
     struct thread_pool* thread_pool,
     void* primitive_data,
     bbox_fn_t bbox_fn,
     center_fn_t center_fn,
-    size_t primitive_count)
+    size_t primitive_count,
+    real_t traversal_cost)
 {
     // Sort primitives by morton code
     morton_t* morton_codes = xmalloc(sizeof(morton_t) * primitive_count);
@@ -400,6 +714,7 @@ struct bvh build_bvh(
         .primitive_indices = primitive_indices,
         .node_count = node_count
     };
+    collapse_leaves(thread_pool, &bvh, traversal_cost);
     return bvh;
 }
 

@@ -18,7 +18,6 @@ int main(int argc, char** argv) {
     struct scene* scene = load_scene(argv[1]);
     if (!scene)
         return EXIT_FAILURE;
-    printf("%zu triangles\n", scene->tri_count);
     free_scene(scene);
     return 0;
 }

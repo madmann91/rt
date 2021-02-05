@@ -43,8 +43,15 @@ struct scene* load_scene(const char* file_name) {
     struct obj* obj = load_obj(file_name);
     if (!obj)
         return NULL;
+    if (obj->face_count == 0) {
+        free_obj(obj);
+        return NULL;
+    }
+
+    printf("Loading scene file '%s'\n", file_name);
     struct scene* scene = xmalloc(sizeof(struct scene));
     scene->tri_count = count_triangles(obj);
+    printf("- Found %zu triangles\n", scene->tri_count);
     scene->tris = xmalloc(sizeof(struct tri) * scene->tri_count);
     fill_tris(scene->tris, obj);
     free_obj(obj);
@@ -57,7 +64,7 @@ struct scene* load_scene(const char* file_name) {
     struct timespec t_end;
     timespec_get(&t_end, TIME_UTC);
 
-    printf("Building BVH took %gms (%zu node(s))\n", elapsed_seconds(&t_start, &t_end) * 1.e3, scene->bvh.node_count);
+    printf("- Building BVH took %gms (%zu node(s))\n", elapsed_seconds(&t_start, &t_end) * 1.e3, scene->bvh.node_count);
     return scene;
 }
 

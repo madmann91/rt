@@ -433,8 +433,8 @@ static void run_counting_task(struct work_item* work_item) {
     collapse_count_task->primitive_count = 0;
     collapse_count_task->node_count = 0;
     for (size_t i = collapse_count_task->begin, n = collapse_count_task->end; i < n; ++i) {
-         collapse_count_task->primitive_count += collapse_count_task->primitive_counts[i];
-         collapse_count_task->node_count += collapse_count_task->node_counts[i];
+        collapse_count_task->primitive_count += collapse_count_task->primitive_counts[i];
+        collapse_count_task->node_count += collapse_count_task->node_counts[i];
     }
 }
 

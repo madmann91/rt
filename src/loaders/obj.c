@@ -67,7 +67,7 @@ static inline bool read_index(char** ptr, struct obj_index* idx) {
     }
 
     *ptr = base;
-    return true;
+    return idx->v != 0;
 }
 
 static inline size_t find_name(char** names, size_t name_count, const char* name) {

@@ -43,13 +43,12 @@ static inline bool read_index(char** ptr, struct obj_index* idx) {
 
     // Detect end of line (negative indices are supported)
     base = skip_spaces(base);
-    if (!isdigit(*base) && *base != '-') return false;
+    if (!isdigit(*base) && *base != '-')
+        return false;
 
-    idx->v = 0;
-    idx->t = 0;
-    idx->n = 0;
+    idx->t = idx->n = 0;
 
-    idx->v = strtol(base, &base, 10);
+    idx->v = strtoll(base, &base, 10);
     base = skip_spaces(base);
 
     if (*base == '/') {
@@ -57,13 +56,13 @@ static inline bool read_index(char** ptr, struct obj_index* idx) {
 
         // Handle the case when there is no texture coordinate
         if (*base != '/')
-            idx->t = strtol(base, &base, 10);
+            idx->t = strtoll(base, &base, 10);
 
         base = skip_spaces(base);
 
         if (*base == '/') {
             base++;
-            idx->n = strtol(base, &base, 10);
+            idx->n = strtoll(base, &base, 10);
         }
     }
 
@@ -109,63 +108,60 @@ static bool parse_obj(FILE* fp, const char* file_name, struct obj* obj) {
         if (*ptr == 'v') {
             switch (ptr[1]) {
                 case ' ':
-                case '\t':
-                    {
-                        real_t x = strtoreal(ptr + 1, &ptr);
-                        real_t y = strtoreal(ptr, &ptr);
-                        real_t z = strtoreal(ptr, &ptr);
-                        PUSH(vertices, (struct vec3) { { x, y, z } });
-                    }
+                case '\t': {
+                    real_t x = strtoreal(ptr + 1, &ptr);
+                    real_t y = strtoreal(ptr, &ptr);
+                    real_t z = strtoreal(ptr, &ptr);
+                    PUSH(vertices, (struct vec3) { { x, y, z } });
                     break;
-                case 'n':
-                    {
-                        real_t x = strtoreal(ptr + 2, &ptr);
-                        real_t y = strtoreal(ptr, &ptr);
-                        real_t z = strtoreal(ptr, &ptr);
-                        PUSH(normals, (struct vec3) { { x, y, z } });
-                    }
+                }
+                case 'n': {
+                    real_t x = strtoreal(ptr + 2, &ptr);
+                    real_t y = strtoreal(ptr, &ptr);
+                    real_t z = strtoreal(ptr, &ptr);
+                    PUSH(normals, (struct vec3) { { x, y, z } });
                     break;
-                case 't':
-                    {
-                        real_t x = strtoreal(ptr + 2, &ptr);
-                        real_t y = strtoreal(ptr, &ptr);
-                        PUSH(tex_coords, (struct vec2) { { x, y } });
-                    }
+                }
+                case 't': {
+                    real_t x = strtoreal(ptr + 2, &ptr);
+                    real_t y = strtoreal(ptr, &ptr);
+                    PUSH(tex_coords, (struct vec2) { { x, y } });
                     break;
+                }
                 default:
-                    fprintf(stderr, "invalid vertex in %s, line %zu", file_name, line_count);
+                    fprintf(stderr, "invalid vertex in %s, line %zu\n", file_name, line_count);
                     ok = false;
                     break;
             }
         } else if (*ptr == 'f' && isspace(ptr[1])) {
             struct obj_face f = { .first_index = indices.size };
-            bool valid = true;
             ptr += 2;
-            while (valid) {
+            while (true) {
                 struct obj_index index;
-                valid = read_index(&ptr, &index);
-                if (valid)
+                if (read_index(&ptr, &index))
                     PUSH(indices, index);
+                else
+                    break;
             }
             f.index_count = indices.size - f.first_index;
 
             // Convert relative indices to absolute
-            for (size_t i = f.first_index, n = f.first_index + f.index_count; i < n; i++) {
+            bool valid = f.index_count >= 3;
+            for (size_t i = f.first_index, n = f.first_index + f.index_count; i < n && valid; i++) {
                 struct obj_index* index = &indices.data[i];
-                index->v = index->v < 0 ? (int)vertices.size   + index->v : index->v;
-                index->t = index->t < 0 ? (int)tex_coords.size + index->t : index->t;
-                index->n = index->n < 0 ? (int)normals.size    + index->n : index->n;
+                index->v = index->v < 0 ? (int)vertices.size   + index->v + 1 : index->v;
+                index->t = index->t < 0 ? (int)tex_coords.size + index->t + 1 : index->t;
+                index->n = index->n < 0 ? (int)normals.size    + index->n + 1 : index->n;
+                valid &= index->v >= 1;
+                valid &= index->v <= vertices.size;
+                valid &= index->t <= tex_coords.size;
+                valid &= index->n <= normals.size;
             }
-
-            // Check if the indices are valid or not
-            valid = f.index_count >= 3;
-            for (size_t i = f.first_index, n = f.first_index + f.index_count; i < n && valid; i++)
-                valid &= indices.data[i].v >= 0 && indices.data[i].t >= 0 && indices.data[i].n >= 0;
 
             if (valid)
                 PUSH(faces, f);
             else
-                fprintf(stderr, "invalid face in %s, line %zu", file_name, line_count);
+                fprintf(stderr, "invalid face in %s, line %zu\n", file_name, line_count);
         } else if (!strncmp(ptr, "usemtl", 6) && isspace(ptr[6])) {
             ptr = skip_spaces(ptr + 6);
             char* base = ptr;
@@ -197,7 +193,7 @@ static bool parse_obj(FILE* fp, const char* file_name, struct obj* obj) {
         } else if ((*ptr == 'g' || *ptr == 'o' || *ptr == 's') && isspace(ptr[1])) {
             // Ignore the 'g', 'o', and 's' OBJ commands
         } else {
-            fprintf(stderr, "invalid OBJ command '%s' in %s, line %zu", ptr, file_name, line_count);
+            fprintf(stderr, "invalid OBJ command '%s' in %s, line %zu\n", ptr, file_name, line_count);
             ok = false;
         }
     }
@@ -322,7 +318,7 @@ static bool parse_mtl(FILE* fp, const char* file_name, struct mtl* mtl) {
             goto invalid_command;
         continue;
 invalid_command:
-        fprintf(stderr, "invalid MTL command '%s' in %s, line %zu", ptr, file_name, line_count);
+        fprintf(stderr, "invalid MTL command '%s' in %s, line %zu\n", ptr, file_name, line_count);
         ok = false;
     }
 
@@ -371,7 +367,7 @@ void free_obj(struct obj* obj) {
     for (size_t i = 0; i < obj->mtl_file_count; ++i)
         free(obj->mtl_file_names[i]);
     free(obj->mtl_file_names);
-    memset(obj, 0, sizeof(struct obj));
+    free(obj);
 }
 
 void free_mtl(struct mtl* mtl) {
@@ -385,5 +381,5 @@ void free_mtl(struct mtl* mtl) {
         free(mtl->materials[i].map_d);
     }
     free(mtl->materials);
-    memset(mtl, 0, sizeof(struct mtl));
+    free(mtl);
 }

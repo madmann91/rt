@@ -11,15 +11,16 @@ struct parallel_task {
 };
 
 static inline size_t compute_chunk_size(size_t elem_count, size_t chunk_count) {
-    return chunk_count > elem_count ? 1 : elem_count / chunk_count;
+    return elem_count / chunk_count + (elem_count % chunk_count ? 1 : 0);
 }
 
-static inline size_t compute_chunk_begin(size_t chunk_size, size_t chunk_index, size_t count) {
-    return chunk_size * chunk_index > count ? count : chunk_size * chunk_index;
+static inline size_t compute_chunk_begin(size_t chunk_size, size_t chunk_index) {
+    return chunk_size * chunk_index;
 }
 
 static inline size_t compute_chunk_end(size_t chunk_size, size_t chunk_index, size_t count) {
-    return compute_chunk_begin(chunk_size, chunk_index + 1, count);
+    size_t chunk_end = chunk_size * (chunk_index + 1);
+    return chunk_end < count ? chunk_end : count;
 }
 
 /* Runs the given computation in parallel on the given thread pool. */

@@ -54,6 +54,8 @@ struct bvh build_bvh(
     center_fn_t center_fn,
     size_t primitive_count);
 
+void free_bvh(struct bvh*);
+
 /* Collapses BVH leaves according to the SAH. The traversal cost
  * is expressed as a ratio of the cost of traversing a node vs.
  * the cost of intersecting a primitive.

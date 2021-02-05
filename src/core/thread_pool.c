@@ -160,6 +160,12 @@ size_t get_thread_count(const struct thread_pool* thread_pool) {
 }
 
 void submit_work(struct thread_pool* thread_pool, struct work_item* first, struct work_item* last) {
+#ifndef NDEBUG
+    // Ensure that following the links from `first` gives `last` as the last element.
+    struct work_item* prev = first;
+    while (prev->next) prev = prev->next;
+    assert(prev == last);
+#endif
     mtx_lock(&thread_pool->queue.mutex);
     if (thread_pool->queue.last_item) {
         assert(thread_pool->queue.first_item);

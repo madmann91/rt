@@ -11,6 +11,7 @@ typedef uint64_t morton_t;
 #define MORTON_LOG_BITS 5
 typedef uint32_t morton_t;
 #endif
+#define MORTON_GRID_DIM (((size_t)1) << (sizeof(morton_t) * CHAR_BIT / 3))
 
 // Split the bit pattern of `x` such that each bit is separated from another bit two zeros.
 static inline morton_t morton_split(morton_t x) {

@@ -135,7 +135,7 @@ void radix_sort(
     size_t data_chunk_size = compute_chunk_size(count,     thread_count);
     size_t bin_chunk_size  = compute_chunk_size(BIN_COUNT, thread_count);
     for (size_t j = 0; j < thread_count; ++j) {
-        copy_tasks[j].begin = binning_tasks[j].begin = compute_chunk_begin(data_chunk_size, j, count);
+        copy_tasks[j].begin = binning_tasks[j].begin = compute_chunk_begin(data_chunk_size, j);
         copy_tasks[j].end   = binning_tasks[j].end   = compute_chunk_end(data_chunk_size, j, count);
         binning_tasks[j].work_item.work_fn = binning_fns[key_size];
         binning_tasks[j].src_keys = src_keys;
@@ -146,7 +146,7 @@ void radix_sort(
         copy_tasks[j].dst_values = dst_values;
         copy_tasks[j].dst_keys = dst_keys;
 
-        sum_tasks[j].begin = compute_chunk_begin(bin_chunk_size, j, BIN_COUNT);
+        sum_tasks[j].begin = compute_chunk_begin(bin_chunk_size, j);
         sum_tasks[j].end   = compute_chunk_end(bin_chunk_size, j, BIN_COUNT);
         sum_tasks[j].shared_bins = shared_bins;
         sum_tasks[j].binning_tasks = binning_tasks;

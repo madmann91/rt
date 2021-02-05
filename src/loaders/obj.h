@@ -8,7 +8,7 @@
 #include "core/rgb.h"
 
 struct obj_index {
-    int v, n, t;
+    long long v, n, t;
 };
 
 struct obj_face {

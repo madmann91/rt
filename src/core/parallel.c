@@ -66,8 +66,10 @@ static void run_tasks(
             }
         }
     }
-    if (previous_task)
+    if (previous_task) {
+        previous_task->work_item.next = NULL;
         submit_work(thread_pool, &first_task->work_item, &previous_task->work_item);
+    }
     wait_for_completion(thread_pool, 0);
 }
 
@@ -104,6 +106,6 @@ void reduce(
         tasks, task_count,
         begin, end);
     for (size_t i = 0; i < task_count; ++i)
-        merge(init, &tasks[i]);
+        merge(init, task_at(tasks, task_size, i));
     free(tasks);
 }

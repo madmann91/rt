@@ -20,12 +20,12 @@ static inline struct tri make_tri(struct vec3 p0, struct vec3 p1, struct vec3 p2
     return (struct tri) { .p0 = p0, .e1 = e1, .e2 = e2, .n = n };
 }
 
-static inline struct vec3 tri_p1(const struct tri* tri) {
-    return sub_vec3(tri->e1, tri->p0);
+static inline struct vec3 get_tri_p1(const struct tri* tri) {
+    return sub_vec3(tri->p0, tri->e1);
 }
 
-static inline struct vec3 tri_p2(const struct tri* tri) {
-    return sub_vec3(tri->p0, tri->e2);
+static inline struct vec3 get_tri_p2(const struct tri* tri) {
+    return add_vec3(tri->p0, tri->e2);
 }
 
 bool intersect_ray_tri(struct ray* ray, const struct tri* tri, struct hit* hit);

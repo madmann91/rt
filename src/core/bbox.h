@@ -2,6 +2,7 @@
 #define CORE_BBOX_H
 
 #include "core/vec3.h"
+#include "core/utils.h"
 
 struct bbox {
     struct vec3 min, max;
@@ -23,7 +24,7 @@ static inline struct bbox union_bbox(struct bbox a, struct bbox b) {
 
 static inline real_t half_bbox_area(struct bbox bbox) {
     struct vec3 e = max_vec3(sub_vec3(bbox.max, bbox.min), (struct vec3) { { 0, 0, 0 } });
-    return (e._[0] + e._[1]) * e._[2] + e._[0] * e._[1];
+    return fast_mul_add(e._[0], e._[1], fast_mul_add(e._[0], e._[2], e._[1] * e._[2]));
 }
 
 static inline struct bbox point_bbox(struct vec3 p) {

@@ -256,6 +256,8 @@ static bool parse_mtl(FILE* fp, const char* file_name, struct mtl* mtl) {
                 ok = false;
             }
             PUSH(materials, (struct mtl_material) { .name = material_name });
+        } else if (materials.size == 0) {
+            goto invalid_command;
         } else if (ptr[0] == 'K') {
             if (ptr[1] == 'a' && isspace(ptr[2])) {
                 struct mtl_material* material = &materials.data[materials.size - 1];

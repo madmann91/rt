@@ -4,25 +4,25 @@
 #include "core/thread_pool.h"
 #include "core/mem_pool.h"
 #include "core/parallel.h"
-#include "loaders/obj.h"
+#include "io/obj_model.h"
 #include "bvh/bvh.h"
 #include "bvh/tri.h"
 
-static inline size_t count_triangles(struct obj* obj) {
+static inline size_t count_triangles(struct obj_model* model) {
     size_t tri_count = 0;
-    for (size_t i = 0; i < obj->face_count; ++i)
-        tri_count += obj->faces[i].index_count - 2;
+    for (size_t i = 0; i < model->face_count; ++i)
+        tri_count += model->faces[i].index_count - 2;
     return tri_count;
 }
 
-static inline void fill_tris(struct tri* tris, struct obj* obj) {
+static inline void fill_tris(struct tri* tris, const struct obj_model* model) {
     size_t tri_count = 0;
-    for (size_t i = 0; i < obj->face_count; ++i) {
-        struct obj_face* face = &obj->faces[i];
-        struct vec3 v0 = obj->vertices[obj->indices[face->first_index + 0].v - 1];
-        struct vec3 v1 = obj->vertices[obj->indices[face->first_index + 1].v - 1];
-        for (size_t j = 2; j < face->index_count; ++j) {
-            struct vec3 v2 = obj->vertices[obj->indices[face->first_index + j].v - 1];
+    for (size_t i = 0, n = model->face_count; i < n; ++i) {
+        struct obj_face* face = &model->faces[i];
+        struct vec3 v0 = model->vertices[model->indices[face->first_index + 0].v - 1];
+        struct vec3 v1 = model->vertices[model->indices[face->first_index + 1].v - 1];
+        for (size_t j = 2, m = face->index_count; j < m; ++j) {
+            struct vec3 v2 = model->vertices[model->indices[face->first_index + j].v - 1];
             tris[tri_count++] = make_tri(v0, v1, v2);
             v1 = v2;
         }
@@ -82,22 +82,22 @@ static inline struct bvh build_tri_bvh(struct thread_pool* thread_pool, struct t
 }
 
 struct scene* load_scene(struct thread_pool* thread_pool, const char* file_name) {
-    struct obj* obj = load_obj(file_name);
-    if (!obj)
+    struct obj_model* model = load_obj_model(file_name);
+    if (!model)
         return NULL;
-    if (obj->face_count == 0) {
-        free_obj(obj);
+    if (model->face_count == 0) {
+        free_obj_model(model);
         return NULL;
     }
 
     printf("Loading scene file '%s'\n", file_name);
     struct scene* scene = xmalloc(sizeof(struct scene));
     scene->mem_pool = new_mem_pool();
-    scene->tri_count = count_triangles(obj);
+    scene->tri_count = count_triangles(model);
     printf("- Found %zu triangles\n", scene->tri_count);
     scene->tris = xmalloc(sizeof(struct tri) * scene->tri_count);
-    fill_tris(scene->tris, obj);
-    free_obj(obj);
+    fill_tris(scene->tris, model);
+    free_obj_model(model);
 
     struct timespec t_start;
     timespec_get(&t_start, TIME_UTC);

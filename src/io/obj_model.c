@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <stddef.h>
 
-#include "loaders/obj.h"
+#include "io/obj_model.h"
 #include "core/utils.h"
 
 #define LINE_BUF_SIZE 1024
@@ -78,7 +78,7 @@ static inline size_t find_name(char** names, size_t name_count, const char* name
     return SIZE_MAX;
 }
 
-static bool parse_obj(FILE* fp, const char* file_name, struct obj* obj) {
+static bool parse_obj(FILE* fp, const char* file_name, struct obj_model* model) {
     ARRAY(struct obj_face, faces)
     ARRAY(struct obj_group, groups)
     ARRAY(struct obj_index, indices)
@@ -198,25 +198,25 @@ static bool parse_obj(FILE* fp, const char* file_name, struct obj* obj) {
         }
     }
 
-    obj->groups     = groups.data;
-    obj->faces      = faces.data;
-    obj->indices    = indices.data;
-    obj->vertices   = vertices.data;
-    obj->normals    = normals.data;
-    obj->tex_coords = tex_coords.data;
+    model->groups     = groups.data;
+    model->faces      = faces.data;
+    model->indices    = indices.data;
+    model->vertices   = vertices.data;
+    model->normals    = normals.data;
+    model->tex_coords = tex_coords.data;
 
-    obj->group_count     = groups.size;
-    obj->face_count      = faces.size;
-    obj->index_count     = indices.size;
-    obj->vertex_count    = vertices.size;
-    obj->normal_count    = normals.size;
-    obj->tex_coord_count = tex_coords.size;
+    model->group_count     = groups.size;
+    model->face_count      = faces.size;
+    model->index_count     = indices.size;
+    model->vertex_count    = vertices.size;
+    model->normal_count    = normals.size;
+    model->tex_coord_count = tex_coords.size;
 
-    obj->material_names = material_names.data;
-    obj->mtl_file_names = mtl_file_names.data;
+    model->material_names = material_names.data;
+    model->mtl_file_names = mtl_file_names.data;
 
-    obj->material_count = material_names.size;
-    obj->mtl_file_count = mtl_file_names.size;
+    model->material_count = material_names.size;
+    model->mtl_file_count = mtl_file_names.size;
 
     return ok;
 }
@@ -229,7 +229,7 @@ static size_t find_material(const struct mtl_material* materials, size_t materia
     return SIZE_MAX;
 }
 
-static bool parse_mtl(FILE* fp, const char* file_name, struct mtl* mtl) {
+static bool parse_mtl(FILE* fp, const char* file_name, struct mtl_lib* mtl_lib) {
     ARRAY(struct mtl_material, materials)
 
     char line_buf[LINE_BUF_SIZE];
@@ -324,64 +324,64 @@ invalid_command:
         ok = false;
     }
 
-    mtl->materials = materials.data;
-    mtl->material_count = materials.size;
+    mtl_lib->materials = materials.data;
+    mtl_lib->material_count = materials.size;
 
     return ok;
 }
 
-struct obj* load_obj(const char* file_name) {
+struct obj_model* load_obj_model(const char* file_name) {
     FILE* fp = fopen(file_name, "r");
     if (!fp)
         return NULL;
-    struct obj* obj = xmalloc(sizeof(struct obj));
-    if (!parse_obj(fp, file_name, obj)) {
-        free_obj(obj);
-        obj = NULL;
+    struct obj_model* model = xmalloc(sizeof(struct obj_model));
+    if (!parse_obj(fp, file_name, model)) {
+        free_obj_model(model);
+        model = NULL;
     }
     fclose(fp);
-    return obj;
+    return model;
 }
 
-struct mtl* load_mtl(const char* file_name) {
+struct mtl_lib* load_mtl_lib(const char* file_name) {
     FILE* fp = fopen(file_name, "r");
     if (!fp)
         return NULL;
-    struct mtl* mtl = xmalloc(sizeof(struct mtl));
-    if (!parse_mtl(fp, file_name, mtl)) {
-        free_mtl(mtl);
-        mtl = NULL;
+    struct mtl_lib* mtl_lib = xmalloc(sizeof(struct mtl_lib));
+    if (!parse_mtl(fp, file_name, mtl_lib)) {
+        free_mtl_lib(mtl_lib);
+        mtl_lib = NULL;
     }
     fclose(fp);
-    return mtl;
+    return mtl_lib;
 }
 
-void free_obj(struct obj* obj) {
-    free(obj->groups);
-    free(obj->faces);
-    free(obj->indices);
-    free(obj->vertices);
-    free(obj->normals);
-    free(obj->tex_coords);
-    for (size_t i = 0; i < obj->material_count; ++i)
-        free(obj->material_names[i]);
-    free(obj->material_names);
-    for (size_t i = 0; i < obj->mtl_file_count; ++i)
-        free(obj->mtl_file_names[i]);
-    free(obj->mtl_file_names);
-    free(obj);
+void free_obj_model(struct obj_model* model) {
+    free(model->groups);
+    free(model->faces);
+    free(model->indices);
+    free(model->vertices);
+    free(model->normals);
+    free(model->tex_coords);
+    for (size_t i = 0; i < model->material_count; ++i)
+        free(model->material_names[i]);
+    free(model->material_names);
+    for (size_t i = 0; i < model->mtl_file_count; ++i)
+        free(model->mtl_file_names[i]);
+    free(model->mtl_file_names);
+    free(model);
 }
 
-void free_mtl(struct mtl* mtl) {
-    for (size_t i = 0; i < mtl->material_count; ++i) {
-        free(mtl->materials[i].name);
-        free(mtl->materials[i].map_ka);
-        free(mtl->materials[i].map_kd);
-        free(mtl->materials[i].map_ks);
-        free(mtl->materials[i].map_ke);
-        free(mtl->materials[i].map_bump);
-        free(mtl->materials[i].map_d);
+void free_mtl_lib(struct mtl_lib* mtl_lib) {
+    for (size_t i = 0; i < mtl_lib->material_count; ++i) {
+        free(mtl_lib->materials[i].name);
+        free(mtl_lib->materials[i].map_ka);
+        free(mtl_lib->materials[i].map_kd);
+        free(mtl_lib->materials[i].map_ks);
+        free(mtl_lib->materials[i].map_ke);
+        free(mtl_lib->materials[i].map_bump);
+        free(mtl_lib->materials[i].map_d);
     }
-    free(mtl->materials);
-    free(mtl);
+    free(mtl_lib->materials);
+    free(mtl_lib);
 }

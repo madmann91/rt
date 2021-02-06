@@ -34,7 +34,7 @@ int main(int argc, char** argv) {
         status = EXIT_FAILURE;
         goto cleanup;
     }
-    image = new_image(width, height);
+    image = new_rgb_image(width, height);
     scene->camera = new_perspective_camera(scene,
         &(struct vec3) { { -4, 1.3, 0.0 } },
         &(struct vec3) { { 1, -0.1, 0 } },

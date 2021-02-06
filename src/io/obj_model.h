@@ -1,5 +1,5 @@
-#ifndef LOADERS_OBJ_H
-#define LOADERS_OBJ_H
+#ifndef IO_OBJ_H
+#define IO_OBJ_H
 
 #include <stdbool.h>
 
@@ -22,7 +22,7 @@ struct obj_group {
     size_t material_index;
 };
 
-struct obj {
+struct obj_model {
     struct obj_group* groups;
     struct obj_face* faces;
     struct obj_index* indices;
@@ -64,14 +64,14 @@ struct mtl_material {
     char* map_d;
 };
 
-struct mtl {
+struct mtl_lib {
     struct mtl_material* materials;
     size_t material_count;
 };
 
-struct obj* load_obj(const char* file_name);
-struct mtl* load_mtl(const char* file_name);
-void free_obj(struct obj*);
-void free_mtl(struct mtl*);
+struct obj_model* load_obj_model(const char* file_name);
+struct mtl_lib* load_mtl_lib(const char* file_name);
+void free_obj_model(struct obj_model*);
+void free_mtl_lib(struct mtl_lib*);
 
 #endif

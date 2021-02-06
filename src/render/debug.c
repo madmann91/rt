@@ -33,7 +33,7 @@ static void run_tile_task(struct parallel_task* task) {
                 real_t intensity = fabs(dot_vec3(normal, ray.dir));
                 color = gray(intensity);
             }
-            *pixel_at(target_image, j, i) = color;
+            set_rgb_pixel(target_image, j, i, &color);
         }
     }
 }

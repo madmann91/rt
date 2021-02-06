@@ -13,7 +13,7 @@ struct render_target {
 
 void render_debug(
     struct thread_pool* thread_pool,
-    struct render_target* render_target,
-    const struct scene*);
+    const struct scene*,
+    struct render_target* render_target);
     
 #endif

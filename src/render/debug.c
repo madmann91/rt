@@ -40,8 +40,8 @@ static void run_tile_task(struct parallel_task* task) {
 
 void render_debug(
     struct thread_pool* thread_pool,
-    struct render_target* render_target,
-    const struct scene* scene)
+    const struct scene* scene,
+    struct render_target* render_target)
 {
     parallel_for(
         thread_pool,

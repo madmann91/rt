@@ -6,6 +6,7 @@
 struct tri;
 struct camera;
 struct mem_pool;
+struct thread_pool;
 
 struct scene {
     struct mem_pool* mem_pool;
@@ -15,8 +16,9 @@ struct scene {
     struct bvh bvh;
 };
 
-/* Loads a scene from a file on disk. */
-struct scene* load_scene(const char* file_name);
+// Loads a scene from a file on disk. Uses the thread pool to parallelize tasks.
+struct scene* load_scene(struct thread_pool* thread_pool, const char* file_name);
+
 void free_scene(struct scene*);
 
 /* Intersects a ray with the scene.

@@ -81,7 +81,7 @@ static inline struct bvh build_tri_bvh(struct thread_pool* thread_pool, struct t
     return bvh;
 }
 
-struct scene* load_scene(const char* file_name) {
+struct scene* load_scene(struct thread_pool* thread_pool, const char* file_name) {
     struct obj* obj = load_obj(file_name);
     if (!obj)
         return NULL;
@@ -101,9 +101,7 @@ struct scene* load_scene(const char* file_name) {
 
     struct timespec t_start;
     timespec_get(&t_start, TIME_UTC);
-    struct thread_pool* thread_pool = new_thread_pool(detect_system_thread_count());
     scene->bvh = build_tri_bvh(thread_pool, &scene->tris, scene->tri_count);
-    free_thread_pool(thread_pool);
     struct timespec t_end;
     timespec_get(&t_end, TIME_UTC);
 

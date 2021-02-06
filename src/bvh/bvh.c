@@ -4,12 +4,12 @@
 #include <assert.h>
 
 #include "bvh/bvh.h"
-#include "core/vec3.h"
 #include "core/parallel.h"
 #include "core/radix_sort.h"
 #include "core/morton.h"
 #include "core/alloc.h"
 #include "core/utils.h"
+#include "core/ray.h"
 
 SWAP(primitive_indices, size_t*)
 SWAP(nodes, struct bvh_node*)

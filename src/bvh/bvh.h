@@ -4,9 +4,11 @@
 #include <stdbool.h>
 
 #include "core/config.h"
-#include "core/thread_pool.h"
-#include "core/ray.h"
 #include "core/bbox.h"
+
+struct ray;
+struct hit;
+struct thread_pool;
 
 struct bvh_node {
     real_t bounds[6];        // Stored as min_x, max_x, min_y, max_y, ...

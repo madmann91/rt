@@ -781,9 +781,9 @@ static inline void compute_ray_data(const struct ray* ray, struct ray_data* ray_
     ray_data->scaled_org._[1] = -ray->dir._[1] * ray_data->inv_dir._[1];
     ray_data->scaled_org._[2] = -ray->dir._[2] * ray_data->inv_dir._[2];
 #endif
-    ray_data->octant[0] = signbit(ray->dir._[0]);
-    ray_data->octant[1] = signbit(ray->dir._[1]);
-    ray_data->octant[2] = signbit(ray->dir._[2]);
+    ray_data->octant[0] = signbit(ray->dir._[0]) ? 1 : 0;
+    ray_data->octant[1] = signbit(ray->dir._[1]) ? 1 : 0;
+    ray_data->octant[2] = signbit(ray->dir._[2]) ? 1 : 0;
 }
 
 static inline bool intersect_node(

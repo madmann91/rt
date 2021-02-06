@@ -54,6 +54,18 @@ static inline real_t dot_vec3(struct vec3 a, struct vec3 b) {
     return fast_mul_add(a._[0], b._[0], fast_mul_add(a._[1], b._[1], a._[2] * b._[2]));
 }
 
+static inline real_t lensq_vec3(struct vec3 a) {
+    return dot_vec3(a, a);
+}
+
+static inline real_t len_vec3(struct vec3 a) {
+    return sqrt(lensq_vec3(a));
+}
+
+static inline struct vec3 normalize_vec3(struct vec3 a) {
+    return scale_vec3(a, ((real_t)1) / len_vec3(a));
+}
+
 static inline struct vec3 cross_vec3(struct vec3 a, struct vec3 b) {
     return (struct vec3) {
         {

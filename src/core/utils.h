@@ -26,6 +26,10 @@ static inline real_t max_real(real_t x, real_t y) {
     return x > y ? x : y;
 }
 
+static inline real_t clamp_real(real_t x, real_t min, real_t max) {
+    return min_real(max_real(x, min), max);
+}
+
 static inline real_t fast_mul_add(real_t x, real_t y, real_t z) {
 #ifdef FAST_REAL_FMA
     // GCC has FP_FAST_FMA defined when a fast version of `fma()` is available

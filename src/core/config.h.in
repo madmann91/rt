@@ -14,6 +14,8 @@ typedef double real_t;
 typedef uint64_t bits_t;
 #define REAL_EPSILON DBL_EPSILON
 #define REAL_MAX DBL_MAX
+#define REAL_PI 3.141592653589793115998
+#define BITS_MAX UINT64_MAX
 #ifdef FP_FAST_FMA
 #define FAST_REAL_FMA
 #endif
@@ -23,6 +25,8 @@ typedef float real_t;
 typedef uint32_t bits_t;
 #define REAL_EPSILON FLT_EPSILON
 #define REAL_MAX FLT_MAX
+#define REAL_PI 3.14159274101257f
+#define BITS_MAX UINT32_MAX
 #ifdef FP_FAST_FMAF
 #define FAST_REAL_FMA
 #endif

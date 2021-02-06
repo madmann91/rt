@@ -42,4 +42,16 @@ static inline real_t dot_vec2(struct vec2 a, struct vec2 b) {
     return fast_mul_add(a._[0], b._[0], a._[1] * b._[1]);
 }
 
+static inline real_t lensq_vec2(struct vec2 a) {
+    return dot_vec2(a, a);
+}
+
+static inline real_t len_vec2(struct vec2 a) {
+    return sqrt(lensq_vec2(a));
+}
+
+static inline struct vec2 normalize_vec2(struct vec2 a) {
+    return scale_vec2(a, ((real_t)1) / len_vec2(a));
+}
+
 #endif

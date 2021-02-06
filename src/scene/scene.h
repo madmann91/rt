@@ -1,10 +1,15 @@
 #ifndef SCENE_SCENE_H
 #define SCENE_SCENE_H
 
-#include "bvh/tri.h"
 #include "bvh/bvh.h"
 
+struct tri;
+struct camera;
+struct mem_pool;
+
 struct scene {
+    struct mem_pool* mem_pool;
+    struct camera* camera;
     struct tri* tris;
     size_t tri_count;
     struct bvh bvh;

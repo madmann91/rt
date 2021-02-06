@@ -1,8 +1,12 @@
 #include <stdio.h>
 
 #include "scene/scene.h"
-#include "loaders/obj.h"
 #include "core/thread_pool.h"
+#include "core/mem_pool.h"
+#include "core/parallel.h"
+#include "loaders/obj.h"
+#include "bvh/bvh.h"
+#include "bvh/tri.h"
 
 static inline size_t count_triangles(struct obj* obj) {
     size_t tri_count = 0;
@@ -25,6 +29,42 @@ static inline void fill_tris(struct tri* tris, struct obj* obj) {
     }
 }
 
+struct permute_task {
+    struct parallel_task task;
+    const struct tri* src_tris;
+    struct tri* dst_tris;
+    const size_t* primitive_indices;
+};
+
+static void run_permute_task(struct parallel_task* task) {
+    struct permute_task* permute_task = (void*)task;
+    for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i)
+        permute_task->dst_tris[permute_task->primitive_indices[i]] = permute_task->src_tris[i];
+}
+
+SWAP(tris, struct tri*)
+
+static inline void permute_tris(
+    struct thread_pool* thread_pool,
+    struct tri** tris,
+    const size_t* primitive_indices,
+    size_t tri_count)
+{
+    struct tri* dst_tris = xmalloc(sizeof(struct tri) * tri_count);
+    parallel_for(
+        thread_pool,
+        run_permute_task,
+        (struct parallel_task*)&(struct permute_task) {
+            .src_tris = *tris,
+            .dst_tris = dst_tris,
+            .primitive_indices = primitive_indices
+        },
+        sizeof(struct permute_task),
+        (size_t[3]) { 0 },
+        (size_t[3]) { tri_count, 1, 1 });
+    swap_tris(tris, &dst_tris);
+}
+
 static inline struct bbox get_tri_bbox(void* primitive_data, size_t index) {
     const struct tri* tri = &((struct tri*)primitive_data)[index];
     return extend_bbox(extend_bbox(point_bbox(tri->p0), get_tri_p1(tri)), get_tri_p2(tri));
@@ -35,8 +75,10 @@ static inline struct vec3 get_tri_center(void* primitive_data, size_t index) {
     return scale_vec3(add_vec3(tri->p0, add_vec3(get_tri_p1(tri), get_tri_p2(tri))), (real_t)1 / (real_t)3);
 }
 
-static inline struct bvh build_tri_bvh(struct thread_pool* thread_pool, struct tri* tris, size_t tri_count) {
-    return build_bvh(thread_pool, tris, get_tri_bbox, get_tri_center, tri_count, 1.5);
+static inline struct bvh build_tri_bvh(struct thread_pool* thread_pool, struct tri** tris, size_t tri_count) {
+    struct bvh bvh = build_bvh(thread_pool, *tris, get_tri_bbox, get_tri_center, tri_count, 1.5);
+    permute_tris(thread_pool, tris, bvh.primitive_indices, tri_count);
+    return bvh;
 }
 
 struct scene* load_scene(const char* file_name) {
@@ -50,6 +92,7 @@ struct scene* load_scene(const char* file_name) {
 
     printf("Loading scene file '%s'\n", file_name);
     struct scene* scene = xmalloc(sizeof(struct scene));
+    scene->mem_pool = new_mem_pool();
     scene->tri_count = count_triangles(obj);
     printf("- Found %zu triangles\n", scene->tri_count);
     scene->tris = xmalloc(sizeof(struct tri) * scene->tri_count);
@@ -59,7 +102,7 @@ struct scene* load_scene(const char* file_name) {
     struct timespec t_start;
     timespec_get(&t_start, TIME_UTC);
     struct thread_pool* thread_pool = new_thread_pool(detect_system_thread_count());
-    scene->bvh = build_tri_bvh(thread_pool, scene->tris, scene->tri_count);
+    scene->bvh = build_tri_bvh(thread_pool, &scene->tris, scene->tri_count);
     free_thread_pool(thread_pool);
     struct timespec t_end;
     timespec_get(&t_end, TIME_UTC);
@@ -70,6 +113,7 @@ struct scene* load_scene(const char* file_name) {
 
 void free_scene(struct scene* scene) {
     free_bvh(&scene->bvh);
+    free_mem_pool(scene->mem_pool);
     free(scene->tris);
     free(scene);
 }

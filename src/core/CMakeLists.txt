@@ -8,6 +8,8 @@ add_library(rt_core
     utils.h
     alloc.c
     alloc.h
+    image.h
+    random.h
     mem_pool.c
     mem_pool.h
     parallel.c
@@ -25,4 +27,4 @@ if (HAS_LIBM)
     set(LIBM m)
 endif ()
 
-target_link_libraries(rt_core PUBLIC Threads::Threads ${LIBM})
+target_link_libraries(rt_core PUBLIC pcg Threads::Threads ${LIBM})

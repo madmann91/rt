@@ -15,5 +15,5 @@ void render_debug(
     struct thread_pool* thread_pool,
     const struct scene*,
     struct render_target* render_target);
-    
+
 #endif

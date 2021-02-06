@@ -43,6 +43,7 @@ void render_debug(
     const struct scene* scene,
     struct render_target* render_target)
 {
+    assert(scene->camera);
     parallel_for(
         thread_pool,
         run_tile_task,

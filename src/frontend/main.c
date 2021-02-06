@@ -2,9 +2,10 @@
 #include <stdio.h>
 
 #include "render/integrators.h"
+#include "scene/scene.h"
+#include "scene/camera.h"
 #include "core/thread_pool.h"
 #include "core/image.h"
-#include "scene/scene.h"
 
 static inline void usage(void) {
     fprintf(stderr,
@@ -34,6 +35,12 @@ int main(int argc, char** argv) {
         goto cleanup;
     }
     image = new_image(width, height);
+    scene->camera = new_perspective_camera(scene,
+        &(struct vec3) { { -4, 1.3, 0.0 } },
+        &(struct vec3) { { 1, -0.1, 0 } },
+        &(struct vec3) { { 0, 1, 0 } },
+        48,
+        (real_t)width / (real_t)height);
 
     render_debug(thread_pool, scene, &(struct render_target) {
         .x_min = 0, .x_max = image->width,

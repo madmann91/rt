@@ -6,6 +6,7 @@
 #include "scene/camera.h"
 #include "core/thread_pool.h"
 #include "core/image.h"
+#include "io/png_image.h"
 
 static inline void usage(void) {
     fprintf(stderr,
@@ -47,6 +48,8 @@ int main(int argc, char** argv) {
         .y_min = 0, .y_max = image->height,
         .image = image
     });
+
+    save_png_image("render.png", image);
 
 cleanup:
     if (thread_pool) free_thread_pool(thread_pool);

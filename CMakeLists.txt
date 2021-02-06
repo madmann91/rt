@@ -26,6 +26,8 @@ set(CMAKE_C_STANDARD 11)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/src)
 
+find_package(PNG 1.6 REQUIRED)
+
 add_subdirectory(src)
 
 include(CTest)

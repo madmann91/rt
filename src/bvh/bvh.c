@@ -641,10 +641,12 @@ static void collapse_leaves(struct thread_pool* thread_pool, struct bvh* bvh, re
     swap_primitive_indices(&bvh->primitive_indices, &dst_primitive_indices);
     swap_nodes(&bvh->nodes, &dst_nodes);
 
+    free(dst_nodes);
     free(dst_primitive_indices);
     free(collapse_count_tasks);
     free(rewrite_tasks);
     free(primitive_counts);
+    free(node_counts);
     free(flags);
     free(parents);
 }

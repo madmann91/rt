@@ -63,6 +63,7 @@ static inline void permute_tris(
         (size_t[3]) { 0 },
         (size_t[3]) { tri_count, 1, 1 });
     swap_tris(tris, &dst_tris);
+    free(dst_tris);
 }
 
 static inline struct bbox get_tri_bbox(void* primitive_data, size_t index) {

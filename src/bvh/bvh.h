@@ -75,12 +75,11 @@ typedef bool (*intersect_leaf_fn_t)(
  * to intersect the primitives in a leaf. If `any` is set,
  * then the algorithm terminates as soon as an intersection
  * is found. Otherwise, the algorithms searches for the closest
- * intersection. This function returns true if an intersection was
- * found, otherwise false. After a call to this function, `ray->t_max`
+ * intersection. If an intersection was found, `ray->t_max`
  * contains the intersection distance, and `hit` contains the
- * hit data (if an intersection was found).
+ * hit data. Otherwise, `ray` and `hit` are left unchanged.
  */
-bool intersect_bvh(
+void intersect_bvh(
     void* intersection_data,
     intersect_leaf_fn_t intersect_leaf,
     const struct bvh* bvh,

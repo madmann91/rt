@@ -150,8 +150,9 @@ static bool intersect_bvh_leaf_tris_closest(
 
 bool intersect_ray_scene(struct ray* ray, const struct scene* scene, struct hit* hit, bool any) {
     hit->primitive_index = INVALID_PRIMITIVE_INDEX;
-    return intersect_bvh(
+    intersect_bvh(
         scene->tris,
         any ? intersect_bvh_leaf_tris_any : intersect_bvh_leaf_tris_closest,
         &scene->bvh, ray, hit, any);
+    return hit->primitive_index != INVALID_PRIMITIVE_INDEX;
 }

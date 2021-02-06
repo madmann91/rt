@@ -16,7 +16,7 @@ SWAP(nodes, struct bvh_node*)
 
 /* This construction algorithm is based on
  * "Parallel Locally-Ordered Clustering for Bounding Volume Hierarchy Construction",
- * by D. Meister and J. Bittner. 
+ * by D. Meister and J. Bittner.
  */
 
 #define SEARCH_RADIUS 14
@@ -749,7 +749,7 @@ static inline real_t intersect_axis_min(
     return (p - ray->org._[axis]) * ray_data->inv_dir._[axis];
 #else
     (void)ray;
-    return fast_mul_add(p, ray_data->inv_dir._[axis], ray_data->scaled_org._[axis]); 
+    return fast_mul_add(p, ray_data->inv_dir._[axis], ray_data->scaled_org._[axis]);
 #endif
 }
 
@@ -806,10 +806,10 @@ static inline bool intersect_node(
     return tmin <= tmax;
 }
 
-bool intersect_bvh(
+void intersect_bvh(
     void* intersection_data,
     intersect_leaf_fn_t intersect_leaf,
-    const struct bvh* bvh, 
+    const struct bvh* bvh,
     struct ray* ray, struct hit* hit, bool any)
 {
     struct ray_data ray_data;
@@ -818,9 +818,9 @@ bool intersect_bvh(
     // Special case when the root node is a leaf
     if (unlikely(bvh->nodes->primitive_count > 0)) {
         real_t t_entry;
-        return
-            intersect_node(ray, &ray_data, bvh->nodes, &t_entry) &&
+        if (intersect_node(ray, &ray_data, bvh->nodes, &t_entry))
             intersect_leaf(intersection_data, bvh->nodes, ray, hit);
+        return;
     }
 
     // General case
@@ -840,7 +840,7 @@ bool intersect_bvh(
         if (hit_##child) { \
             if (unlikely(child->primitive_count > 0)) { \
                 if (intersect_leaf(intersection_data, child, ray, hit) && any) \
-                    return true; \
+                    return; \
                 child = NULL; \
             } \
         } else \
@@ -874,6 +874,4 @@ bool intersect_bvh(
             left = bvh->nodes + stack[--stack_size];
         }
     }
-
-    return hit->primitive_index != INVALID_PRIMITIVE_INDEX;
 }

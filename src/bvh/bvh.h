@@ -19,7 +19,6 @@ struct bvh_node {
 struct bvh {
     struct bvh_node* nodes;    // The root is located at nodes[0]
     size_t* primitive_indices; // Reordered primitive indices such that leaves index into that array.
-    size_t depth;              // By convention, 0 means that the root is a leaf
     size_t node_count;
 };
 
@@ -36,13 +35,13 @@ static inline struct bbox get_bvh_node_bbox(const struct bvh_node* node) {
     };
 }
 
-static inline void set_bvh_node_bbox(struct bvh_node* node, struct bbox bbox) {
-    node->bounds[0] = bbox.min._[0];
-    node->bounds[1] = bbox.max._[0];
-    node->bounds[2] = bbox.min._[1];
-    node->bounds[3] = bbox.max._[1];
-    node->bounds[4] = bbox.min._[2];
-    node->bounds[5] = bbox.max._[2];
+static inline void set_bvh_node_bbox(struct bvh_node* node, const struct bbox* bbox) {
+    node->bounds[0] = bbox->min._[0];
+    node->bounds[1] = bbox->max._[0];
+    node->bounds[2] = bbox->min._[1];
+    node->bounds[3] = bbox->max._[1];
+    node->bounds[4] = bbox->min._[2];
+    node->bounds[5] = bbox->max._[2];
 }
 
 /* Builds a BVH for a set of primitives with the given

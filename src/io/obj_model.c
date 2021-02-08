@@ -88,8 +88,14 @@ static bool parse_obj(FILE* fp, const char* file_name, struct obj_model* model) 
     ARRAY(char*, material_names)
     ARRAY(char*, mtl_file_names)
 
+    // Create a dummy material with a dummy group in case the model has no materials
     PUSH(groups, (struct obj_group) { .first_face = 0, .material_index = 0 });
     PUSH(material_names, copy_str("#dummy"));
+
+    // Reserve dummy vertices since indices start at 1
+    PUSH(vertices,   const_vec3(0));
+    PUSH(normals,    const_vec3(0));
+    PUSH(tex_coords, const_vec2(0));
 
     char line_buf[LINE_BUF_SIZE];
     size_t line_count = 0;
@@ -149,9 +155,9 @@ static bool parse_obj(FILE* fp, const char* file_name, struct obj_model* model) 
             bool valid = f.index_count >= 3;
             for (size_t i = f.first_index, n = f.first_index + f.index_count; i < n && valid; i++) {
                 struct obj_index* index = &indices.data[i];
-                index->v = index->v < 0 ? (long long)vertices.size   + index->v + 1 : index->v;
-                index->t = index->t < 0 ? (long long)tex_coords.size + index->t + 1 : index->t;
-                index->n = index->n < 0 ? (long long)normals.size    + index->n + 1 : index->n;
+                index->v = index->v < 0 ? (long long)vertices.size   + index->v : index->v;
+                index->t = index->t < 0 ? (long long)tex_coords.size + index->t : index->t;
+                index->n = index->n < 0 ? (long long)normals.size    + index->n : index->n;
                 valid &= index->v >= 1;
                 valid &= index->v <= (long long)vertices.size;
                 valid &= index->t <= (long long)tex_coords.size;

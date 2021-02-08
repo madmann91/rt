@@ -24,7 +24,7 @@ static struct ray generate_perspective_ray(const struct camera* camera, const st
     };
     return (struct ray) {
         .org = perspective_camera->eye,
-        .dir = ray_dir,
+        .dir = normalize_vec3(ray_dir),
         .t_min = 0, .t_max = REAL_MAX
     };
 }
@@ -45,12 +45,14 @@ struct camera* new_perspective_camera(
         &scene->mem_pool, sizeof(struct perspective_camera));
     camera->eye   = *eye;
     camera->dir   = normalize_vec3(*dir);
-    camera->right = normalize_vec3(cross_vec3(camera->dir, *up));
-    camera->up    = normalize_vec3(cross_vec3(camera->right, camera->dir));
+    camera->right = normalize_vec3(cross_vec3(*dir, *up));
+    camera->up    = normalize_vec3(cross_vec3(camera->right, *dir));
 
-    real_t width = tan(fov * REAL_PI / (real_t)360), height = width / ratio;
+    real_t width = tan(fov * REAL_PI / (real_t)360);
+    real_t height = width / ratio;
     camera->right = scale_vec3(camera->right, width);
     camera->up    = scale_vec3(camera->up, height);
+
     camera->camera.generate_ray = generate_perspective_ray;
     camera->camera.update       = update_perspective_camera;
     return &camera->camera;

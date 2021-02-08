@@ -27,6 +27,20 @@ static inline real_t half_bbox_area(struct bbox bbox) {
     return fast_mul_add(e._[0], e._[1], fast_mul_add(e._[0], e._[2], e._[1] * e._[2]));
 }
 
+static inline bool bbox_contains(const struct bbox bbox, const struct bbox other) {
+    return
+        bbox.max._[0] >= other.max._[0] && bbox.min._[0] <= other.min._[0] &&
+        bbox.max._[1] >= other.max._[1] && bbox.min._[1] <= other.min._[1] &&
+        bbox.max._[2] >= other.max._[2] && bbox.min._[2] <= other.min._[2];
+}
+
+static inline bool bbox_overlaps(const struct bbox bbox, const struct bbox other) {
+    return
+        bbox.max._[0] >= other.min._[0] && bbox.min._[0] <= other.max._[0] &&
+        bbox.max._[1] >= other.min._[1] && bbox.min._[1] <= other.max._[1] &&
+        bbox.max._[2] >= other.min._[2] && bbox.min._[2] <= other.max._[2];
+}
+
 static inline struct bbox point_bbox(struct vec3 p) {
     return (struct bbox) { .min = p, .max = p };
 }

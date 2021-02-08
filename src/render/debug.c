@@ -22,7 +22,7 @@ static void run_tile_task(struct parallel_task* task) {
     for (size_t i = task->begin[1], n = task->end[1]; i < n; ++i) {
         for (size_t j = task->begin[0], m = task->end[0]; j < m; ++j) {
             struct vec2 offset = random_vec2_01(&rnd_gen);
-            struct vec2 xy = screen_to_camera(j, i, target_image->width, target_image->height, &offset);
+            struct vec2 xy = image_to_camera(j, i, target_image->width, target_image->height, &offset);
             struct ray ray = scene->camera->generate_ray(scene->camera, &xy);
             struct hit hit;
 

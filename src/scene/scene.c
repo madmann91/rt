@@ -19,11 +19,11 @@ static inline void fill_tris(struct tri* tris, const struct obj_model* model) {
     size_t tri_count = 0;
     for (size_t i = 0, n = model->face_count; i < n; ++i) {
         struct obj_face* face = &model->faces[i];
-        struct vec3 v0 = model->vertices[model->indices[face->first_index + 0].v - 1];
-        struct vec3 v1 = model->vertices[model->indices[face->first_index + 1].v - 1];
+        struct vec3 v0 = model->vertices[model->indices[face->first_index + 0].v];
+        struct vec3 v1 = model->vertices[model->indices[face->first_index + 1].v];
         for (size_t j = 2, m = face->index_count; j < m; ++j) {
-            struct vec3 v2 = model->vertices[model->indices[face->first_index + j].v - 1];
-            tris[tri_count++] = make_tri(v0, v1, v2);
+            struct vec3 v2 = model->vertices[model->indices[face->first_index + j].v];
+            tris[tri_count++] = make_tri(&v0, &v1, &v2);
             v1 = v2;
         }
     }
@@ -39,7 +39,7 @@ struct permute_task {
 static void run_permute_task(struct parallel_task* task) {
     struct permute_task* permute_task = (void*)task;
     for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i)
-        permute_task->dst_tris[permute_task->primitive_indices[i]] = permute_task->src_tris[i];
+        permute_task->dst_tris[i] = permute_task->src_tris[permute_task->primitive_indices[i]];
 }
 
 SWAP(tris, struct tri*)
@@ -77,7 +77,7 @@ static inline struct vec3 get_tri_center(void* primitive_data, size_t index) {
 }
 
 static inline struct bvh build_tri_bvh(struct thread_pool* thread_pool, struct tri** tris, size_t tri_count) {
-    struct bvh bvh = build_bvh(thread_pool, *tris, get_tri_bbox, get_tri_center, tri_count, 1.5);
+    struct bvh bvh = build_bvh(thread_pool, *tris, get_tri_bbox, get_tri_center, tri_count, 1);
     permute_tris(thread_pool, tris, bvh.primitive_indices, tri_count);
     return bvh;
 }
@@ -106,7 +106,9 @@ struct scene* load_scene(struct thread_pool* thread_pool, const char* file_name)
     struct timespec t_end;
     timespec_get(&t_end, TIME_UTC);
 
-    printf("- Building BVH took %gms (%zu node(s))\n", elapsed_seconds(&t_start, &t_end) * 1.e3, scene->bvh.node_count);
+    printf("- Building BVH took %gms (%zu node(s))\n",
+        elapsed_seconds(&t_start, &t_end) * 1.e3,
+        scene->bvh.node_count);
     return scene;
 }
 
@@ -125,10 +127,13 @@ static bool intersect_bvh_leaf_tris(
 {
     const struct tri* tris = intersection_data;
     bool found = false;
-    for (size_t i = 0, j = leaf->first_child_or_primitive, n = leaf->primitive_count; i < n; ++i, ++j) {
-        found |= intersect_ray_tri(ray, &tris[j], hit);
-        if (any && found)
-            return true;
+    for (size_t i = 0, j = leaf->first_child_or_primitive, n = leaf->primitive_count; i < n; ++i) {
+        if (intersect_ray_tri(ray, &tris[j + i], hit)) {
+            hit->primitive_index = j + i;
+            found = true;
+            if (any)
+                return true;
+        }
     }
     return found;
 }

@@ -173,7 +173,7 @@ static void run_leaves_task(struct parallel_task* task) {
         struct bbox bbox = leaf_node_task->bbox_fn(
             leaf_node_task->primitive_data, leaf_node_task->primitive_indices[i]);
         struct bvh_node* leaf = &leaf_node_task->leaves[i];
-        set_bvh_node_bbox(leaf, bbox);
+        set_bvh_node_bbox(leaf, &bbox);
         leaf->primitive_count = 1;
         leaf->first_child_or_primitive = i;
     }
@@ -248,9 +248,10 @@ static void run_merge_task(struct work_item* work_item) {
                 struct bvh_node* unmerged_node =
                     &merge_task->dst_unmerged_nodes[merge_task->unmerged_index];
                 size_t first_child = merge_task->merged_index;
-                set_bvh_node_bbox(unmerged_node, union_bbox(
+                struct bbox merged_bbox = union_bbox(
                     get_bvh_node_bbox(&merge_task->src_unmerged_nodes[i]),
-                    get_bvh_node_bbox(&merge_task->src_unmerged_nodes[j])));
+                    get_bvh_node_bbox(&merge_task->src_unmerged_nodes[j]));
+                set_bvh_node_bbox(unmerged_node, &merged_bbox);
                 unmerged_node->primitive_count = 0;
                 unmerged_node->first_child_or_primitive = first_child;
                 merge_task->merged_nodes[first_child + 0] = merge_task->src_unmerged_nodes[i];
@@ -346,8 +347,8 @@ static void merge_nodes(
 struct collapse_init_task {
     struct parallel_task task;
     const struct bvh_node* nodes;
-    size_t* node_counts;
-    size_t* parents;
+    size_t* restrict node_counts;
+    size_t* restrict parents;
     atomic_int* flags;
 };
 
@@ -356,7 +357,7 @@ static void run_collapse_init_task(struct parallel_task* task) {
     for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i) {
         const struct bvh_node* node = &collapse_init_task->nodes[i];
         collapse_init_task->node_counts[i] = 1;
-        atomic_store_explicit(&collapse_init_task->flags[i], 0, memory_order_relaxed);
+        atomic_init(&collapse_init_task->flags[i], 0);
         if (node->primitive_count == 0) {
             collapse_init_task->parents[node->first_child_or_primitive + 0] = i;
             collapse_init_task->parents[node->first_child_or_primitive + 1] = i;
@@ -368,11 +369,16 @@ struct collapse_task {
     struct parallel_task task;
     const struct bvh_node* nodes;
     size_t* restrict node_counts;
-    real_t traversal_cost;
     size_t* restrict primitive_counts;
     size_t* restrict parents;
     atomic_int* flags;
+    real_t traversal_cost;
 };
+
+static inline size_t left_sibling(size_t node_index) {
+    assert(node_index != 0);
+    return node_index % 2 == 1 ? node_index : node_index - 1;
+}
 
 static void run_collapse_task(struct parallel_task* task) {
     struct collapse_task* collapse_task = (void*)task;
@@ -386,14 +392,16 @@ static void run_collapse_task(struct parallel_task* task) {
         // Walk up the parents of this node towards the root
         size_t j = i;
         while (true) {
+            size_t first_child = left_sibling(j);
             j = collapse_task->parents[j];
+
             // Terminate this path if the root has been reached or the two children have not yet been processed
             if (j == SIZE_MAX || atomic_fetch_add_explicit(&collapse_task->flags[j], 1, memory_order_relaxed) == 0)
                 break;
-            const struct bvh_node* node = &collapse_task->nodes[j];
-            assert(node->primitive_count == 0);
 
-            size_t first_child = node->first_child_or_primitive;
+            const struct bvh_node* parent = &collapse_task->nodes[j];
+            assert(first_child == parent->first_child_or_primitive);
+
             size_t left_count  = collapse_task->primitive_counts[first_child + 0];
             size_t right_count = collapse_task->primitive_counts[first_child + 1];
             // Both children must be leaves in order to collapse this node
@@ -404,7 +412,7 @@ static void run_collapse_task(struct parallel_task* task) {
             const struct bvh_node* right = &collapse_task->nodes[first_child + 1];
             size_t total_count = left_count + right_count;
             float collapse_cost =
-                half_bbox_area(get_bvh_node_bbox(node)) * (total_count - collapse_task->traversal_cost);
+                half_bbox_area(get_bvh_node_bbox(parent)) * (total_count - collapse_task->traversal_cost);
             float cost =
                 half_bbox_area(get_bvh_node_bbox(left))  * left_count +
                 half_bbox_area(get_bvh_node_bbox(right)) * right_count;
@@ -536,7 +544,8 @@ static void run_rewire_task(struct parallel_task* task) {
     for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i) {
         struct bvh_node* node = &rewire_task->nodes[i];
         if (node->primitive_count == 0)
-            node->first_child_or_primitive = rewire_task->node_indices[node->first_child_or_primitive];
+            node->first_child_or_primitive =
+                rewire_task->node_indices[node->first_child_or_primitive];
     }
 }
 
@@ -610,7 +619,7 @@ static void collapse_leaves(struct thread_pool* thread_pool, struct bvh* bvh, re
         first_primitive += collapse_count_tasks[i].primitive_count;
         first_node += collapse_count_tasks[i].node_count;
     }
-    assert(first_primitive < bvh->node_count);
+    assert(first_primitive <= bvh->node_count);
     rewrite_tasks[task_count - 1].work_item.next = NULL;
 
     size_t primitive_count = first_primitive, node_count = first_node;
@@ -630,8 +639,8 @@ static void collapse_leaves(struct thread_pool* thread_pool, struct bvh* bvh, re
         thread_pool,
         run_rewire_task,
         (struct parallel_task*)&(struct rewire_task) {
-            .nodes            = bvh->nodes,
-            .node_indices     = node_counts
+            .nodes        = dst_nodes,
+            .node_indices = node_counts
         },
         sizeof(struct rewire_task),
         (size_t[3]) { 0 },
@@ -731,6 +740,8 @@ void free_bvh(struct bvh* bvh) {
  * article. It is only enabled when USE_ROBUST_BVH_TRAVERSAL is defined.
  */
 
+#define TRAVERSAL_STACK_SIZE 64
+
 struct ray_data {
 #ifdef USE_ROBUST_BVH_TRAVERSAL
     struct vec3 inv_dir;
@@ -769,9 +780,7 @@ static inline real_t intersect_axis_max(
 
 static inline void compute_ray_data(const struct ray* ray, struct ray_data* ray_data) {
 #ifdef USE_ROBUST_BVH_TRAVERSAL
-    ray_data->inv_dir._[0] = safe_inverse(ray->dir._[0]);
-    ray_data->inv_dir._[1] = safe_inverse(ray->dir._[1]);
-    ray_data->inv_dir._[2] = safe_inverse(ray->dir._[2]);
+    ray_data->inv_dir = div_vec3(const_vec3(1), ray->dir);
     ray_data->padded_inv_dir._[0] = add_ulp_magnitude(ray_data->inv_dir._[0], 2);
     ray_data->padded_inv_dir._[1] = add_ulp_magnitude(ray_data->inv_dir._[1], 2);
     ray_data->padded_inv_dir._[2] = add_ulp_magnitude(ray_data->inv_dir._[2], 2);
@@ -779,9 +788,7 @@ static inline void compute_ray_data(const struct ray* ray, struct ray_data* ray_
     ray_data->inv_dir._[0] = safe_inverse(ray->dir._[0]);
     ray_data->inv_dir._[1] = safe_inverse(ray->dir._[1]);
     ray_data->inv_dir._[2] = safe_inverse(ray->dir._[2]);
-    ray_data->scaled_org._[0] = -ray->dir._[0] * ray_data->inv_dir._[0];
-    ray_data->scaled_org._[1] = -ray->dir._[1] * ray_data->inv_dir._[1];
-    ray_data->scaled_org._[2] = -ray->dir._[2] * ray_data->inv_dir._[2];
+    ray_data->scaled_org = neg_vec3(mul_vec3(ray->org, ray_data->inv_dir));
 #endif
     ray_data->octant[0] = signbit(ray->dir._[0]) ? 1 : 0;
     ray_data->octant[1] = signbit(ray->dir._[1]) ? 1 : 0;
@@ -825,9 +832,11 @@ void intersect_bvh(
         return;
     }
 
-    // General case
-    bits_t stack[bvh->depth];
-    size_t stack_size = 0;
+    // Allocate some space on the stack to store nodes,
+    // to prevent dynamic allocation whenever possible.
+    bits_t stack_buf[TRAVERSAL_STACK_SIZE];
+    bits_t* stack_ptr = stack_buf;
+    size_t stack_cap = TRAVERSAL_STACK_SIZE, stack_size = 0;
 
     const struct bvh_node* left = bvh->nodes + bvh->nodes->first_child_or_primitive;
     while (true) {
@@ -842,7 +851,7 @@ void intersect_bvh(
         if (hit_##child) { \
             if (unlikely(child->primitive_count > 0)) { \
                 if (intersect_leaf(intersection_data, child, ray, hit) && any) \
-                    return; \
+                    break; \
                 child = NULL; \
             } \
         } else \
@@ -863,7 +872,17 @@ void intersect_bvh(
                     left = right;
                     right = tmp;
                 }
-                stack[stack_size++] = right->first_child_or_primitive;
+                // Reallocate the stack on the heap if there is not enough room
+                // in the current stack buffer.
+                if (unlikely(stack_size >= stack_cap)) {
+                    stack_cap *= 2;
+                    if (stack_ptr == stack_buf) {
+                        stack_ptr = xmalloc(sizeof(bits_t) * stack_cap);
+                        memcpy(stack_ptr, stack_buf, sizeof(bits_t) * stack_size);
+                    } else
+                        stack_ptr = xrealloc(stack_ptr, sizeof(bits_t) * stack_cap);
+                }
+                stack_ptr[stack_size++] = right->first_child_or_primitive;
             }
             left = bvh->nodes + left->first_child_or_primitive;
         } else if (right) {
@@ -873,7 +892,10 @@ void intersect_bvh(
             // No intersection was found
             if (stack_size == 0)
                 break;
-            left = bvh->nodes + stack[--stack_size];
+            left = bvh->nodes + stack_ptr[--stack_size];
         }
     }
+
+    if (stack_ptr != stack_buf)
+        free(stack_ptr);
 }

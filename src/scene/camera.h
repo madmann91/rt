@@ -31,13 +31,13 @@ struct camera {
  * the offset within a pixel: `(0, 0)` is the top-left corner of that pixel,
  * and `(1, 1)` is the top-right one.
  */
-static inline struct vec2 screen_to_camera(
+static inline struct vec2 image_to_camera(
     size_t x, size_t y,
     size_t w, size_t h,
     const struct vec2* offset)
 {
-    const real_t inv_x = (real_t)2 / (real_t)(w - 1);
-    const real_t inv_y = (real_t)-2 / (real_t)(h - 1);
+    const real_t inv_x = (real_t) 2 / (real_t)w;
+    const real_t inv_y = (real_t)-2 / (real_t)h;
     return (struct vec2) {
         {
             fast_mul_add(x + offset->_[0], inv_x, (real_t)-1),

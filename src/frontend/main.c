@@ -37,10 +37,19 @@ int main(int argc, char** argv) {
     }
     image = new_rgb_image(width, height);
     scene->camera = new_perspective_camera(scene,
+#if 0
+        // Dining room
         &(struct vec3) { { -4, 1.3, 0.0 } },
         &(struct vec3) { { 1, -0.1, 0 } },
         &(struct vec3) { { 0, 1, 0 } },
         48,
+#else
+        // Cornell box
+        &(struct vec3) { { 0, 0.9, 2.5 } },
+        &(struct vec3) { { 0, 0, -1 } },
+        &(struct vec3) { { 0, 1, 0 } },
+        60,
+#endif
         (real_t)width / (real_t)height);
 
     render_debug(thread_pool, scene, &(struct render_target) {

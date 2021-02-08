@@ -449,13 +449,13 @@ static void run_counting_task(struct work_item* work_item) {
 struct rewrite_task {
     struct work_item work_item;
     size_t begin, end;
-    const struct bvh_node* src_nodes;
-    struct bvh_node* dst_nodes;
-    size_t* node_counts;
-    const size_t* parents;
-    const size_t* primitive_counts;
-    const size_t* src_primitive_indices;
-    size_t* dst_primitive_indices;
+    const struct bvh_node* restrict src_nodes;
+    struct bvh_node* restrict dst_nodes;
+    size_t* restrict node_counts;
+    const size_t* restrict parents;
+    const size_t* restrict primitive_counts;
+    const size_t* restrict src_primitive_indices;
+    size_t* restrict dst_primitive_indices;
     size_t first_node;
     size_t first_primitive;
 };

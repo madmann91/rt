@@ -31,7 +31,8 @@ static struct ray generate_perspective_ray(const struct camera* camera, const st
 
 static void update_perspective_camera(struct camera* camera, const struct camera_event* event) {
     // TODO
-    (void)camera, (void)event;
+    IGNORE(camera);
+    IGNORE(event);
 }
 
 struct camera* new_perspective_camera(

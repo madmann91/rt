@@ -6,7 +6,7 @@
 #include <time.h>
 #include <assert.h>
 
-#include "core/parallel.h"
+#include "core/thread_pool.h"
 #include "core/utils.h"
 
 struct global_data {
@@ -90,17 +90,18 @@ static void render_tile(const struct tile* tile, const struct global_data* data)
 
 #ifndef USE_OPENMP
 struct render_task {
-    struct parallel_task task;
+    struct parallel_task_2d task;
     struct global_data* global_data;
 };
 
-static void render_task(struct parallel_task* task) {
+static void render_task(struct parallel_task_2d* task, size_t thread_id) {
+    IGNORE(thread_id);
     struct render_task* render_task = (void*)task;
     struct tile tile = {
-        .i = render_task->task.begin[1],
-        .j = render_task->task.begin[0],
-        .m = render_task->task.end[1],
-        .n = render_task->task.end[0]
+        .i = render_task->task.range[1].begin,
+        .j = render_task->task.range[0].begin,
+        .m = render_task->task.range[1].end,
+        .n = render_task->task.range[0].end
     };
     render_tile(&tile, render_task->global_data);
 }
@@ -137,13 +138,12 @@ int main() {
         .i = 0, .j = 0, .n = n, .m = m
     }, &global_data);
 #else
-    parallel_for(
+    parallel_for_2d(
         thread_pool,
         render_task,
-        (struct parallel_task*)&(struct render_task) { .global_data = &global_data },
+        (struct parallel_task_2d*)&(struct render_task) { .global_data = &global_data },
         sizeof(struct render_task),
-        (size_t[3]){ 0, 0, 0 },
-        (size_t[3]){ n, m, 1 });
+        (struct range[2]) { {0, n}, {0, m} });
 #endif
     struct timespec t_end;
     timespec_get(&t_end, TIME_UTC);

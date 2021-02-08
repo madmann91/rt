@@ -8,6 +8,7 @@
 #include "core/config.h"
 #include "core/alloc.h"
 
+#define IGNORE(x) do { (void)x; } while (0)
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 #define SWAP(name, T) \
     static inline void swap_##name(T* left, T* right) { \

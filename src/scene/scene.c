@@ -3,7 +3,6 @@
 #include "scene/scene.h"
 #include "core/thread_pool.h"
 #include "core/mem_pool.h"
-#include "core/parallel.h"
 #include "io/obj_model.h"
 #include "bvh/bvh.h"
 #include "bvh/tri.h"
@@ -30,15 +29,16 @@ static inline void fill_tris(struct tri* tris, const struct obj_model* model) {
 }
 
 struct permute_task {
-    struct parallel_task task;
+    struct parallel_task_1d task;
     const struct tri* src_tris;
     struct tri* dst_tris;
     const size_t* primitive_indices;
 };
 
-static void run_permute_task(struct parallel_task* task) {
+static void run_permute_task(struct parallel_task_1d* task, size_t thread_id) {
+    IGNORE(thread_id);
     struct permute_task* permute_task = (void*)task;
-    for (size_t i = task->begin[0], n = task->end[0]; i < n; ++i)
+    for (size_t i = task->range.begin, n = task->range.end; i < n; ++i)
         permute_task->dst_tris[i] = permute_task->src_tris[permute_task->primitive_indices[i]];
 }
 
@@ -51,17 +51,16 @@ static inline void permute_tris(
     size_t tri_count)
 {
     struct tri* dst_tris = xmalloc(sizeof(struct tri) * tri_count);
-    parallel_for(
+    parallel_for_1d(
         thread_pool,
         run_permute_task,
-        (struct parallel_task*)&(struct permute_task) {
+        (struct parallel_task_1d*)&(struct permute_task) {
             .src_tris = *tris,
             .dst_tris = dst_tris,
             .primitive_indices = primitive_indices
         },
         sizeof(struct permute_task),
-        (size_t[3]) { 0 },
-        (size_t[3]) { tri_count, 1, 1 });
+        &(struct range) { 0, tri_count });
     swap_tris(tris, &dst_tris);
     free(dst_tris);
 }
@@ -77,7 +76,7 @@ static inline struct vec3 get_tri_center(void* primitive_data, size_t index) {
 }
 
 static inline struct bvh build_tri_bvh(struct thread_pool* thread_pool, struct tri** tris, size_t tri_count) {
-    struct bvh bvh = build_bvh(thread_pool, *tris, get_tri_bbox, get_tri_center, tri_count, 1);
+    struct bvh bvh = build_bvh(thread_pool, *tris, get_tri_bbox, get_tri_center, tri_count, 1.5);
     permute_tris(thread_pool, tris, bvh.primitive_indices, tri_count);
     return bvh;
 }

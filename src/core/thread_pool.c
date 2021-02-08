@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 #include <assert.h>
 #include <threads.h>
 
@@ -23,11 +24,18 @@ struct work_queue {
     mtx_t mutex;
 };
 
+struct thread_data {
+    struct thread_pool* thread_pool;
+    struct work_queue* queue;
+    size_t thread_id;
+};
+
 struct thread_pool {
     thrd_t* threads;
     size_t thread_count;
     bool should_stop;
     struct work_queue queue;
+    struct thread_data* thread_data;
 };
 
 #if defined (__unix__) || (defined (__APPLE__) && defined (__MACH__))
@@ -55,8 +63,10 @@ static inline bool waiting_condition(const struct work_queue* queue) {
 }
 
 static int thread_pool_worker(void* data) {
-    struct thread_pool* thread_pool = data;
-    struct work_queue* queue = &thread_pool->queue;
+    struct thread_data* thread_data = data;
+    struct work_queue* queue = thread_data->queue;
+    struct thread_pool* thread_pool = thread_data->thread_pool;
+    size_t thread_id = thread_data->thread_id;
     while (true) {
         mtx_lock(&queue->mutex);
         while (!queue->first_item) {
@@ -72,7 +82,7 @@ static int thread_pool_worker(void* data) {
         queue->worked_on++;
         mtx_unlock(&queue->mutex);
 
-        item->work_fn(item);
+        item->work_fn(item, thread_id);
 
         mtx_lock(&queue->mutex);
         item->next = queue->done_items;
@@ -129,11 +139,15 @@ struct thread_pool* new_thread_pool(size_t thread_count) {
     struct thread_pool* thread_pool = xmalloc(sizeof(struct thread_pool));
     if (!init_work_queue(&thread_pool->queue))
         goto cleanup_queue;
+    thread_pool->thread_data = xmalloc(sizeof(struct thread_data) * thread_count);
     thread_pool->threads = xmalloc(sizeof(thrd_t) * thread_count);
     thread_pool->thread_count = thread_count;
     thread_pool->should_stop = false;
     for (size_t i = 0; i < thread_count; ++i) {
-        if (thrd_create(thread_pool->threads + i, thread_pool_worker, thread_pool) != thrd_success) {
+        thread_pool->thread_data[i].thread_pool = thread_pool;
+        thread_pool->thread_data[i].queue = &thread_pool->queue;
+        thread_pool->thread_data[i].thread_id = i;
+        if (thrd_create(thread_pool->threads + i, thread_pool_worker, &thread_pool->thread_data[i]) != thrd_success) {
             thread_pool->thread_count = i;
             goto cleanup_thread;
         }
@@ -143,6 +157,7 @@ cleanup_thread:
     terminate_threads(thread_pool);
     free_work_queue(&thread_pool->queue);
     free(thread_pool->threads);
+    free(thread_pool->thread_data);
 cleanup_queue:
     free(thread_pool);
     return NULL;
@@ -152,6 +167,7 @@ void free_thread_pool(struct thread_pool* thread_pool) {
     terminate_threads(thread_pool);
     free_work_queue(&thread_pool->queue);
     free(thread_pool->threads);
+    free(thread_pool->thread_data);
     free(thread_pool);
 }
 
@@ -200,4 +216,111 @@ struct work_item* wait_for_completion(struct thread_pool* thread_pool, size_t co
     queue->done_target = 0;
     mtx_unlock(&queue->mutex);
     return done_items;
+}
+
+static inline struct work_item* task_at(
+    struct work_item* tasks, size_t task_size, size_t index)
+{
+    return (struct work_item*)(((char*)tasks) + task_size * index);
+}
+
+static inline void init_parallel_tasks(
+    struct work_item* tasks,
+    struct work_item* init,
+    void (*compute)(struct work_item*, size_t),
+    size_t task_size, size_t task_count)
+{
+    init->work_fn = compute; 
+    init->next    = NULL;
+    for (size_t i = 0; i < task_count; ++i) {
+        struct work_item* task = task_at(tasks, task_size, i);
+        memcpy(task, init, task_size);
+        if (i != task_count - 1)
+            task->next = task_at(tasks, task_size, i + 1);
+    }
+}
+
+static inline size_t range_end(size_t i, size_t chunk_size, size_t end) {
+    return i + chunk_size > end ? end : i + chunk_size;
+}
+
+void parallel_for_1d(
+    struct thread_pool* thread_pool,
+    void (*compute)(struct parallel_task_1d*, size_t),
+    struct parallel_task_1d* init, size_t task_size,
+    const struct range* range)
+{
+    size_t thread_count = get_thread_count(thread_pool);
+    size_t task_count = thread_count * 2;
+    struct work_item* tasks = xmalloc(task_size * task_count);
+    init_parallel_tasks(tasks, &init->work_item, (work_fn_t)compute, task_size, task_count);
+
+    struct work_item* current_task  = tasks;
+    struct work_item* first_task    = tasks;
+    struct work_item* previous_task = NULL;
+
+    const size_t chunk_size = compute_chunk_size(range[0].end - range[0].begin, task_count);
+    for (size_t i = range[0].begin; i < range[0].end; i += chunk_size) {
+        assert(current_task);
+        ((struct parallel_task_1d*)current_task)->range.begin = i;
+        ((struct parallel_task_1d*)current_task)->range.end   = range_end(i, chunk_size, range[0].end);
+        previous_task = current_task;
+        current_task = current_task->next;
+        if (!current_task) {
+            submit_work(thread_pool, first_task, previous_task);
+            first_task = current_task = wait_for_completion(thread_pool, thread_count);
+            previous_task = NULL;
+        }
+    }
+    if (previous_task) {
+        previous_task->next = NULL;
+        submit_work(thread_pool, first_task, previous_task);
+    }
+    wait_for_completion(thread_pool, 0);
+    free(tasks);
+}
+
+void parallel_for_2d(
+    struct thread_pool* thread_pool,
+    void (*compute)(struct parallel_task_2d*, size_t),
+    struct parallel_task_2d* init, size_t task_size,
+    const struct range* range)
+{
+    size_t thread_count = get_thread_count(thread_pool);
+    size_t task_count = thread_count * 2;
+    struct work_item* tasks = xmalloc(task_size * task_count);
+    init_parallel_tasks(tasks, &init->work_item, (work_fn_t)compute, task_size, task_count);
+
+    struct work_item* current_task  = tasks;
+    struct work_item* first_task    = tasks;
+    struct work_item* previous_task = NULL;
+
+    const size_t chunk_size[] = {
+        compute_chunk_size(range[0].end - range[0].begin, task_count),
+        compute_chunk_size(range[1].end - range[1].begin, task_count)
+    };
+    for (size_t j = range[1].begin; j < range[1].end; j += chunk_size[1]) {
+        size_t next_j = range_end(j, chunk_size[1], range[1].end);
+        for (size_t i = range[0].begin; i < range[0].end; i += chunk_size[0]) {
+            size_t next_i = range_end(i, chunk_size[0], range[0].end);
+            assert(current_task);
+            ((struct parallel_task_2d*)current_task)->range[0].begin = i;
+            ((struct parallel_task_2d*)current_task)->range[0].end   = next_i;
+            ((struct parallel_task_2d*)current_task)->range[1].begin = j;
+            ((struct parallel_task_2d*)current_task)->range[1].end   = next_j;
+            previous_task = current_task;
+            current_task = current_task->next;
+            if (!current_task) {
+                submit_work(thread_pool, first_task, previous_task);
+                first_task = current_task = wait_for_completion(thread_pool, thread_count);
+                previous_task = NULL;
+            }
+        }
+    }
+    if (previous_task) {
+        previous_task->next = NULL;
+        submit_work(thread_pool, first_task, previous_task);
+    }
+    wait_for_completion(thread_pool, 0);
+    free(tasks);
 }

@@ -12,8 +12,6 @@ add_library(rt_core
     random.h
     mem_pool.c
     mem_pool.h
-    parallel.c
-    parallel.h
     radix_sort.c
     radix_sort.h
     thread_pool.c

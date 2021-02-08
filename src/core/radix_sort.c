@@ -5,7 +5,6 @@
 #include <stdlib.h>
 
 #include "core/radix_sort.h"
-#include "core/parallel.h"
 #include "core/alloc.h"
 #include "core/utils.h"
 
@@ -26,7 +25,8 @@ struct binning_task {
 };
 
 #define BINNING(bit_count) \
-    static void run_##bit_count##_bit_binning_task(struct work_item* work_item) { \
+    static void run_##bit_count##_bit_binning_task(struct work_item* work_item, size_t thread_id) { \
+        IGNORE(thread_id); \
         struct binning_task* binning_task = (void*)work_item; \
         const UINT_N(bit_count)* keys = *binning_task->src_keys; \
         UINT_N(bit_count) mask = BINNING_MASK(bit_count); \
@@ -56,7 +56,8 @@ struct prefix_sum_task {
     size_t begin, end;
 };
 
-static void prefix_sum_task(struct work_item* work_item) {
+static void prefix_sum_task(struct work_item* work_item, size_t thread_id) {
+    IGNORE(thread_id);
     struct prefix_sum_task* prefix_sum_task = (void*)work_item;
     struct binning_task* binning_tasks = prefix_sum_task->binning_tasks;
     for (size_t i = prefix_sum_task->begin, n = prefix_sum_task->end; i < n; ++i) {
@@ -81,7 +82,8 @@ struct copy_task {
 };
 
 #define COPY(bit_count) \
-    static void run_##bit_count##_bit_copy_task(struct work_item* work_item) { \
+    static void run_##bit_count##_bit_copy_task(struct work_item* work_item, size_t thread_id) { \
+        IGNORE(thread_id); \
         struct copy_task* copy_task = (void*)work_item; \
         struct binning_task* this_binning_task = copy_task->this_binning_task; \
         size_t sum = 0; \

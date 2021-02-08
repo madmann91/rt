@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
     }
     image = new_rgb_image(width, height);
     scene->camera = new_perspective_camera(scene,
-#if 0
+#if 1
         // Dining room
         &(struct vec3) { { -4, 1.3, 0.0 } },
         &(struct vec3) { { 1, -0.1, 0 } },

@@ -2,13 +2,15 @@
 #include <stdio.h>
 
 #include "core/thread_pool.h"
+#include "core/utils.h"
 
 struct add_job {
     struct work_item work_item;
     int* a;
 };
 
-static void add(struct work_item* work_item) {
+static void add(struct work_item* work_item, size_t thread_id) {
+    IGNORE(thread_id);
     struct add_job* job = (void*)work_item;
     (*job->a)++;
 }

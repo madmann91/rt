@@ -5,11 +5,15 @@ add_library(rt_core
     rgb.h
     vec2.h
     vec3.h
+    tri.c
+    tri.h
+    quad.c
+    quad.h
     utils.h
-    alloc.c
-    alloc.h
-    image.h
     random.h
+    hash.h
+    hash_table.c
+    hash_table.h
     mem_pool.c
     mem_pool.h
     radix_sort.c

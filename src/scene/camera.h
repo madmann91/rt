@@ -1,32 +1,39 @@
 #ifndef SCENE_CAMERA_H
 #define SCENE_CAMERA_H
 
+#include "scene/scene.h"
 #include "core/ray.h"
 #include "core/utils.h"
 #include "core/vec2.h"
 
-struct scene;
-
-/* User event that can control the camera.
- * Different cameras can respond differently to the same event.
+/*
+ * Cameras are special scene nodes in the sense that they can
+ * be modified (by user input). This means that each camera is
+ * a new object, regardless of whether a similar camera exists or not.
  */
+
+// User event that can control the camera.
+// Different cameras can respond differently to the same event.
 struct camera_event {
     real_t mouse_move[2]; // Relative mouse movement on X and Y
 
-    /* Relative keyboard movement generated from the
-     * UP, DOWN, LEFT, RIGHT keyboard keys.
-     */
-    real_t keyboard_move[3];
+    // Relative keyboard movement generated from the
+    // UP, DOWN, LEFT, RIGHT keyboard keys.
+    real_t keyboard_move[4];
 };
 
 struct camera {
+    struct scene_node node;
+
     // Generates a ray for a position `(x, y)` in `[-1, 1]^2`.
+    // This function returns a ray whose direction is normalized.
     struct ray (*generate_ray)(const struct camera*, const struct vec2*);
     // Updates a camera after a mouse movement or a keypress.
     void (*update)(struct camera*, const struct camera_event*);
 };
 
-/* Converts screen coordinates to camera coordinates.
+/*
+ * Converts screen coordinates to camera coordinates.
  * The offset is a 2D vector in `[0, 1]^2` that represents
  * the offset within a pixel: `(0, 0)` is the top-left corner of that pixel,
  * and `(1, 1)` is the top-right one.

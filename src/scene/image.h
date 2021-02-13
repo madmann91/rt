@@ -2,9 +2,10 @@
 #define CORE_IMAGE_H
 
 #include <stddef.h>
+#include <stdbool.h>
 #include <assert.h>
 
-#include "core/alloc.h"
+#include "core/utils.h"
 #include "core/rgba.h"
 #include "core/rgb.h"
 

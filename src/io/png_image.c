@@ -1,7 +1,7 @@
 #include <stdio.h>
 
 #include "io/png_image.h"
-#include "core/image.h"
+#include "scene/image.h"
 #include "core/utils.h"
 
 #include <png.h>

@@ -1,5 +1,5 @@
-#ifndef IO_OBJ_H
-#define IO_OBJ_H
+#ifndef IO_OBJ_MODEL_H
+#define IO_OBJ_MODEL_H
 
 #include <stdbool.h>
 
@@ -8,7 +8,7 @@
 #include "core/rgb.h"
 
 struct obj_index {
-    long long v, n, t;
+    long v, n, t;
 };
 
 struct obj_face {

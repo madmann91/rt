@@ -1,6 +1,6 @@
-#include "bvh/tri.h"
+#include "core/tri.h"
 
-bool intersect_ray_tri(struct ray* ray, const struct tri* tri, struct hit* hit) {
+bool intersect_ray_tri(struct ray* ray, struct hit* hit, const struct tri* tri) {
     struct vec3 c = sub_vec3(tri->p0, ray->org);
     struct vec3 r = cross_vec3(ray->dir, c);
 
@@ -14,8 +14,7 @@ bool intersect_ray_tri(struct ray* ray, const struct tri* tri, struct hit* hit) 
         real_t t = dot_vec3(tri->n, c) * inv_det;
         if (t >= ray->t_min && t <= ray->t_max) {
             ray->t_max = t;
-            hit->u = u;
-            hit->v = v;
+            hit->uv = make_vec2(u, v);
             return true;
         }
     }

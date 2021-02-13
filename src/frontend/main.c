@@ -1,20 +1,17 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "render/integrators.h"
 #include "scene/scene.h"
 #include "scene/camera.h"
+#include "scene/geometry.h"
+#include "scene/image.h"
 #include "core/thread_pool.h"
-#include "core/image.h"
+#include "io/import_obj.h"
 #include "io/png_image.h"
+#include "render/render.h"
 
 static inline void usage(void) {
-    fprintf(stderr,
-        "rt -- A fast and minimalistic renderer\n"
-        "\n"
-        "rt uses a configuration file to specify the scene to render.\n"
-        "Try running `rt file.toml' where `file.toml' is a valid scene file.\n"
-        "See https://github.com/madmann91/rt for more information.\n");
+    fprintf(stderr, "rt -- A fast and minimalistic renderer\n");
 }
 
 int main(int argc, char** argv) {
@@ -26,18 +23,18 @@ int main(int argc, char** argv) {
 
     struct thread_pool* thread_pool = NULL;
     struct scene* scene = NULL;
+    struct camera* camera = NULL;
     struct image* image = NULL;
+    struct mesh* mesh = NULL;
+    geometry_t geometry;
     int status = EXIT_SUCCESS;
 
     thread_pool = new_thread_pool(detect_system_thread_count());
-    scene = load_scene(thread_pool, argv[1]);
-    if (!scene) {
-        status = EXIT_FAILURE;
-        goto cleanup;
-    }
+    scene = new_scene();
     image = new_rgb_image(width, height);
-    scene->camera = new_perspective_camera(scene,
-#if 1
+    camera = new_perspective_camera(
+        scene,
+#if 0
         // Dining room
         &(struct vec3) { { -4, 1.3, 0.0 } },
         &(struct vec3) { { 1, -0.1, 0 } },
@@ -52,10 +49,23 @@ int main(int argc, char** argv) {
 #endif
         (real_t)width / (real_t)height);
 
-    render_debug(thread_pool, scene, &(struct render_target) {
-        .x_min = 0, .x_max = image->width,
-        .y_min = 0, .y_max = image->height,
-        .image = image
+    mesh = import_obj_model(scene, argv[1]);
+    if (!mesh) {
+        fprintf(stderr, "Cannot load OBJ model");
+        goto cleanup;
+    }
+    geometry = new_mesh_geometry(scene, mesh);
+    prepare_geometry(geometry, thread_pool);
+
+    render_debug_fn(thread_pool, &(struct render_params) {
+        .viewport = {
+            .x_min = 0, .x_max = image->width,
+            .y_min = 0, .y_max = image->height
+        },
+        .scene = scene,
+        .camera = camera,
+        .geometry = geometry,
+        .target_image = image
     });
 
     save_png_image("render.png", image);
@@ -63,6 +73,7 @@ int main(int argc, char** argv) {
 cleanup:
     if (thread_pool) free_thread_pool(thread_pool);
     if (scene) free_scene(scene);
+    if (mesh) free_mesh(mesh);
     if (image) free_image(image);
     return status;
 }

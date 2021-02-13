@@ -1,6 +1,3 @@
-[submodule "contrib/tomlc99"]
-	path = contrib/tomlc99
-	url = https://github.com/cktan/tomlc99
 [submodule "contrib/pcg-c-basic"]
 	path = contrib/pcg-c-basic
 	url = https://github.com/imneme/pcg-c-basic

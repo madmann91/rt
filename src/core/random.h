@@ -19,9 +19,8 @@ static inline struct rnd_gen make_rnd_gen(uint64_t seed) {
     return rnd_gen;
 }
 
-/* Generates a random seed suitable for a random generator,
- * based on the pixel coordinates and the frame index.
- */
+// Generates a random seed suitable for a random generator,
+// based on the pixel coordinates and the frame index.
 static inline uint64_t random_seed(size_t x, size_t y, size_t frame_index) {
     uint64_t low  = hash_uint(hash_uint(hash_init(), x), frame_index);
     uint64_t high = hash_uint(hash_uint(hash_init(), frame_index), y);

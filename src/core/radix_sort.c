@@ -5,7 +5,6 @@
 #include <stdlib.h>
 
 #include "core/radix_sort.h"
-#include "core/alloc.h"
 #include "core/utils.h"
 
 #define RADIX_SORT_BITS 8
@@ -24,7 +23,7 @@ struct binning_task {
     size_t bins[BIN_COUNT];
 };
 
-#define BINNING(bit_count) \
+#define GEN_BINNING_TASK(bit_count) \
     static void run_##bit_count##_bit_binning_task(struct work_item* work_item, size_t thread_id) { \
         IGNORE(thread_id); \
         struct binning_task* binning_task = (void*)work_item; \
@@ -36,10 +35,10 @@ struct binning_task {
             binning_task->bins[(keys[i] >> shift) & mask]++; \
     }
 
-BINNING(8)
-BINNING(16)
-BINNING(32)
-BINNING(64)
+GEN_BINNING_TASK(8)
+GEN_BINNING_TASK(16)
+GEN_BINNING_TASK(32)
+GEN_BINNING_TASK(64)
 
 static const work_fn_t binning_fns[] = {
     [sizeof(uint8_t )] = run_8_bit_binning_task,
@@ -81,7 +80,7 @@ struct copy_task {
     size_t begin, end;
 };
 
-#define COPY(bit_count) \
+#define GEN_COPY_TASK(bit_count) \
     static void run_##bit_count##_bit_copy_task(struct work_item* work_item, size_t thread_id) { \
         IGNORE(thread_id); \
         struct copy_task* copy_task = (void*)work_item; \
@@ -105,10 +104,10 @@ struct copy_task {
         } \
     }
 
-COPY(8)
-COPY(16)
-COPY(32)
-COPY(64)
+GEN_COPY_TASK(8)
+GEN_COPY_TASK(16)
+GEN_COPY_TASK(32)
+GEN_COPY_TASK(64)
 
 static const work_fn_t copy_fns[] = {
     [sizeof(uint8_t )] = run_8_bit_copy_task,
@@ -117,8 +116,8 @@ static const work_fn_t copy_fns[] = {
     [sizeof(uint64_t)] = run_64_bit_copy_task
 };
 
-SWAP(keys, void*)
-SWAP(values, size_t*)
+GEN_SWAP(keys, void*)
+GEN_SWAP(values, size_t*)
 
 void radix_sort(
     struct thread_pool* thread_pool,

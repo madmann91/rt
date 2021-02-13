@@ -1,15 +1,16 @@
-#ifndef IO_PNG_H
-#define IO_PNG_H
+#ifndef IO_PNG_IMAGE_H
+#define IO_PNG_IMAGE_H
 
 #include <stdbool.h>
 
 struct image;
 
-struct image* load_png_image(const char* file_name);
-
-/* Stores an image into a 24-bit PNG file.
- * A value of 1.0 in the R, G, or B channel is mapped to a byte value of 255.
+/*
+ * These functions load and store images to PNG files.
+ * Only images that have an R, G, B, and optionally A channel are accepted.
  */
+
+struct image* load_png_image(const char* file_name);
 bool save_png_image(const char* file_name, const struct image* image);
 
 #endif

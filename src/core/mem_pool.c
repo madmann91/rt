@@ -5,7 +5,7 @@
 #include <stdalign.h>
 
 #include "core/mem_pool.h"
-#include "core/alloc.h"
+#include "core/utils.h"
 
 #define DEFAULT_CAP 4096
 

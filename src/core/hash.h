@@ -14,6 +14,13 @@
     uint64_t: hash_uint64) \
     (h, x)
 
+#define hash_int(h, x) _Generic((x), \
+    int8_t: hash_int8, \
+    int16_t: hash_int16, \
+    int32_t: hash_int32, \
+    int64_t: hash_int64) \
+    (h, x)
+
 static inline uint32_t hash_init(void) {
     return FNV_OFFSET;
 }
@@ -33,6 +40,11 @@ static inline uint32_t hash_uint32(uint32_t h, uint32_t u) {
 static inline uint32_t hash_uint64(uint32_t h, uint64_t u) {
     return hash_uint32(hash_uint32(h, u), u >> 32);
 }
+
+static inline uint32_t hash_int8(uint32_t h,  int8_t  i) { return hash_uint8 (h, i); }
+static inline uint32_t hash_int16(uint32_t h, int16_t i) { return hash_uint16(h, i); }
+static inline uint32_t hash_int32(uint32_t h, int32_t i) { return hash_uint32(h, i); }
+static inline uint32_t hash_int64(uint32_t h, int64_t i) { return hash_uint64(h, i); }
 
 static inline uint32_t hash_bytes(uint32_t h, const void* data, size_t size) {
     for (size_t i = 0; i < size; ++i)

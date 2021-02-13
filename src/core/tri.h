@@ -1,5 +1,5 @@
-#ifndef BVH_TRI_H
-#define BVH_TRI_H
+#ifndef CORE_TRI_H
+#define CORE_TRI_H
 
 #include <stdbool.h>
 
@@ -32,6 +32,6 @@ static inline struct vec3 get_tri_p2(const struct tri* tri) {
     return add_vec3(tri->p0, tri->e2);
 }
 
-bool intersect_ray_tri(struct ray* ray, const struct tri* tri, struct hit* hit);
+bool intersect_ray_tri(struct ray* ray, struct hit*, const struct tri* tri);
 
 #endif

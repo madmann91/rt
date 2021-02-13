@@ -26,9 +26,8 @@ struct parallel_task_2d {
     struct range range[2];
 };
 
-/* This function tries to detect the number of threads available on the system.
- * It always returns a value greater than 0, even if detection fails.
- */
+// This function tries to detect the number of threads available on the system.
+// It always returns a value greater than 0, even if detection fails.
 size_t detect_system_thread_count(void);
 
 // Creates a new thread pool with an empty queue.
@@ -42,9 +41,8 @@ size_t get_thread_count(const struct thread_pool* thread_pool);
 // Enqueues several work items in order on a thread pool, using locks to prevent data races.
 void submit_work(struct thread_pool* thread_pool, struct work_item* first, struct work_item* last);
 
-/* Waits for the given number of enqueued work items to terminate, or all of them if `count == 0`.
- * Returns the executed work items for re-use.
- */
+// Waits for the given number of enqueued work items to terminate, or all of them if `count == 0`.
+// Returns the executed work items for re-use.
 struct work_item* wait_for_completion(struct thread_pool* thread_pool, size_t count);
 
 static inline size_t compute_chunk_size(size_t elem_count, size_t chunk_count) {

@@ -4,9 +4,9 @@
 #include <assert.h>
 #include <threads.h>
 
-#include "core/config.h"
-#include "core/alloc.h"
 #include "core/thread_pool.h"
+#include "core/config.h"
+#include "core/utils.h"
 
 /* Fallback thread count for a thread pool when
  * the number of threads cannot be determined.

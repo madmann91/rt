@@ -1,5 +1,5 @@
 add_subdirectory(core)
-add_subdirectory(bvh)
+add_subdirectory(accel)
 add_subdirectory(io)
 add_subdirectory(scene)
 add_subdirectory(render)

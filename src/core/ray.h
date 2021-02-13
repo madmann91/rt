@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "core/vec3.h"
+#include "core/vec2.h"
 #include "core/utils.h"
 
 #define INVALID_PRIMITIVE_INDEX SIZE_MAX
@@ -17,15 +18,19 @@ struct ray {
 
 struct hit {
     size_t primitive_index;
-    real_t u, v;
+    struct vec2 uv;
 };
 
-static inline struct vec3 point_at(struct ray ray, real_t t) {
+static inline struct hit empty_hit(void) {
+    return (struct hit) { .primitive_index = INVALID_PRIMITIVE_INDEX };
+}
+
+static inline struct vec3 point_at(const struct ray* ray, real_t t) {
     return (struct vec3) {
         {
-            fast_mul_add(ray.dir._[0], t, ray.org._[0]),
-            fast_mul_add(ray.dir._[1], t, ray.org._[1]),
-            fast_mul_add(ray.dir._[2], t, ray.org._[2]),
+            fast_mul_add(ray->dir._[0], t, ray->org._[0]),
+            fast_mul_add(ray->dir._[1], t, ray->org._[1]),
+            fast_mul_add(ray->dir._[2], t, ray->org._[2]),
         }
     };
 }

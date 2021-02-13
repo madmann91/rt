@@ -3,18 +3,18 @@
 #include <limits.h>
 #include <assert.h>
 
-#include "bvh/bvh.h"
+#include "accel/bvh.h"
 #include "core/thread_pool.h"
 #include "core/radix_sort.h"
 #include "core/morton.h"
-#include "core/alloc.h"
 #include "core/utils.h"
 #include "core/ray.h"
 
-SWAP(primitive_indices, size_t*)
-SWAP(nodes, struct bvh_node*)
+GEN_SWAP(primitive_indices, size_t*)
+GEN_SWAP(nodes, struct bvh_node*)
 
-/* This construction algorithm is based on
+/*
+ * This construction algorithm is based on
  * "Parallel Locally-Ordered Clustering for Bounding Volume Hierarchy Construction",
  * by D. Meister and J. Bittner.
  */
@@ -340,7 +340,8 @@ static void merge_nodes(
     free(merge_count_tasks);
 }
 
-/* This algorithm collapses leaves according to the SAH. It is based on a bottom-up
+/*
+ * This algorithm collapses leaves according to the SAH. It is based on a bottom-up
  * traversal, which is itself inspired from T. Karras's paper: "Maximizing Parallelism in
  * the Construction of BVHs, Octrees, and k-d Trees".
  */
@@ -663,7 +664,7 @@ static void collapse_leaves(struct thread_pool* thread_pool, struct bvh* bvh, re
     free(parents);
 }
 
-struct bvh build_bvh(
+struct bvh* build_bvh(
     struct thread_pool* thread_pool,
     void* primitive_data,
     bbox_fn_t bbox_fn,
@@ -722,23 +723,22 @@ struct bvh build_bvh(
     free(src_unmerged_nodes);
     free(dst_unmerged_nodes);
 
-    struct bvh bvh = {
-        .nodes = merged_nodes,
-        .primitive_indices = primitive_indices,
-        .node_count = node_count
-    };
-    collapse_leaves(thread_pool, &bvh, traversal_cost);
+    struct bvh* bvh = xmalloc(sizeof(struct bvh));
+    bvh->nodes = merged_nodes;
+    bvh->primitive_indices = primitive_indices;
+    bvh->node_count = node_count;
+    collapse_leaves(thread_pool, bvh, traversal_cost);
     return bvh;
 }
 
 void free_bvh(struct bvh* bvh) {
     free(bvh->nodes);
     free(bvh->primitive_indices);
-    bvh->nodes = NULL;
-    bvh->primitive_indices = NULL;
+    free(bvh);
 }
 
-/* The robust traversal implementation is inspired from T. Ize's "Robust BVH Ray Traversal"
+/*
+ * The robust traversal implementation is inspired from T. Ize's "Robust BVH Ray Traversal"
  * article. It is only enabled when USE_ROBUST_BVH_TRAVERSAL is defined.
  */
 
@@ -755,10 +755,10 @@ struct ray_data {
     int octant[3];
 };
 
-static inline real_t intersect_axis_min(
-    int axis, real_t p,
+static inline real_t intersect_ray_axis_min(
     const struct ray* ray,
-    const struct ray_data* ray_data)
+    const struct ray_data* ray_data,
+    int axis, real_t p)
 {
 #ifdef USE_ROBUST_BVH_TRAVERSAL
     return (p - ray->org._[axis]) * ray_data->inv_dir._[axis];
@@ -768,15 +768,15 @@ static inline real_t intersect_axis_min(
 #endif
 }
 
-static inline real_t intersect_axis_max(
-    int axis, real_t p,
+static inline real_t intersect_ray_axis_max(
     const struct ray* ray,
-    const struct ray_data* ray_data)
+    const struct ray_data* ray_data,
+    int axis, real_t p)
 {
 #ifdef USE_ROBUST_BVH_TRAVERSAL
     return (p - ray->org._[axis]) * ray_data->padded_inv_dir._[axis];
 #else
-    return intersect_axis_min(axis, p, ray, ray_data);
+    return intersect_ray_axis_min(ray, ray_data, axis, p);
 #endif
 }
 
@@ -797,18 +797,18 @@ static inline void compute_ray_data(const struct ray* ray, struct ray_data* ray_
     ray_data->octant[2] = signbit(ray->dir._[2]) ? 1 : 0;
 }
 
-static inline bool intersect_node(
+static inline bool intersect_ray_node(
     const struct ray* ray,
     const struct ray_data* ray_data,
     const struct bvh_node* node,
     real_t* t_entry)
 {
-    real_t tmin_x = intersect_axis_min(0, node->bounds[0 + ray_data->octant[0]], ray, ray_data);
-    real_t tmin_y = intersect_axis_min(1, node->bounds[2 + ray_data->octant[1]], ray, ray_data);
-    real_t tmin_z = intersect_axis_min(2, node->bounds[4 + ray_data->octant[2]], ray, ray_data);
-    real_t tmax_x = intersect_axis_max(0, node->bounds[0 + 1 - ray_data->octant[0]], ray, ray_data);
-    real_t tmax_y = intersect_axis_max(1, node->bounds[2 + 1 - ray_data->octant[1]], ray, ray_data);
-    real_t tmax_z = intersect_axis_max(2, node->bounds[4 + 1 - ray_data->octant[2]], ray, ray_data);
+    real_t tmin_x = intersect_ray_axis_min(ray, ray_data, 0, node->bounds[0 + ray_data->octant[0]]);
+    real_t tmin_y = intersect_ray_axis_min(ray, ray_data, 1, node->bounds[2 + ray_data->octant[1]]);
+    real_t tmin_z = intersect_ray_axis_min(ray, ray_data, 2, node->bounds[4 + ray_data->octant[2]]);
+    real_t tmax_x = intersect_ray_axis_max(ray, ray_data, 0, node->bounds[0 + 1 - ray_data->octant[0]]);
+    real_t tmax_y = intersect_ray_axis_max(ray, ray_data, 1, node->bounds[2 + 1 - ray_data->octant[1]]);
+    real_t tmax_z = intersect_ray_axis_max(ray, ray_data, 2, node->bounds[4 + 1 - ray_data->octant[2]]);
 
     real_t tmin = max_real(max_real(tmin_x, tmin_y), max_real(tmin_z, ray->t_min));
     real_t tmax = min_real(min_real(tmax_x, tmax_y), min_real(tmax_z, ray->t_max));
@@ -817,11 +817,11 @@ static inline bool intersect_node(
     return tmin <= tmax;
 }
 
-void intersect_bvh(
-    void* intersection_data,
-    intersect_leaf_fn_t intersect_leaf,
+bool intersect_ray_bvh(
+    struct ray* ray, struct hit* hit,
     const struct bvh* bvh,
-    struct ray* ray, struct hit* hit, bool any)
+    intersect_ray_leaf_fn_t intersect_ray_leaf,
+    void* intersection_data, bool any)
 {
     struct ray_data ray_data;
     compute_ray_data(ray, &ray_data);
@@ -829,9 +829,8 @@ void intersect_bvh(
     // Special case when the root node is a leaf
     if (unlikely(bvh->nodes->primitive_count > 0)) {
         real_t t_entry;
-        if (intersect_node(ray, &ray_data, bvh->nodes, &t_entry))
-            intersect_leaf(intersection_data, bvh->nodes, ray, hit);
-        return;
+        if (intersect_ray_node(ray, &ray_data, bvh->nodes, &t_entry))
+            return intersect_ray_leaf(ray, hit, bvh->nodes, intersection_data);
     }
 
     // Allocate some space on the stack to store nodes,
@@ -840,20 +839,24 @@ void intersect_bvh(
     bits_t* stack_ptr = stack_buf;
     size_t stack_cap = TRAVERSAL_STACK_SIZE, stack_size = 0;
 
+    bool found = false;
     const struct bvh_node* left = bvh->nodes + bvh->nodes->first_child_or_primitive;
     while (true) {
         const struct bvh_node* right = left + 1;
 
         // Intersect the two children together
         real_t t_entry[2];
-        bool hit_left  = intersect_node(ray, &ray_data, left,  t_entry + 0);
-        bool hit_right = intersect_node(ray, &ray_data, right, t_entry + 1);
+        bool hit_left  = intersect_ray_node(ray, &ray_data, left,  t_entry + 0);
+        bool hit_right = intersect_ray_node(ray, &ray_data, right, t_entry + 1);
 
 #define INTERSECT_CHILD(child) \
         if (hit_##child) { \
             if (unlikely(child->primitive_count > 0)) { \
-                if (intersect_leaf(intersection_data, child, ray, hit) && any) \
-                    break; \
+                if (intersect_ray_leaf(ray, hit, child, intersection_data)) { \
+                    found = true; \
+                    if (any) \
+                        break; \
+                } \
                 child = NULL; \
             } \
         } else \
@@ -900,4 +903,5 @@ void intersect_bvh(
 
     if (stack_ptr != stack_buf)
         free(stack_ptr);
+    return found;
 }

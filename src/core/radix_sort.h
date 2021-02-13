@@ -5,7 +5,8 @@
 
 #include "core/thread_pool.h"
 
-/* Performs a radix sort over the given array.
+/*
+ * Performs a radix sort over the given array.
  * This function requires a copy of the key and value buffers, as it does not operate in place.
  * The sorted array is available as the pair `(src_keys, src_values)`.
  * Supported key types are `uint8_t`, `uint16_t`, `uint32_t`, and `uint64_t`.

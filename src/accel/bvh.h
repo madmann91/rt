@@ -1,5 +1,5 @@
-#ifndef BVH_BVH_H
-#define BVH_BVH_H
+#ifndef ACCEL_BVH_H
+#define ACCEL_BVH_H
 
 #include <stdbool.h>
 
@@ -22,9 +22,8 @@ struct bvh {
     size_t node_count;
 };
 
-/* Bounding box and cent callbacks used by the construction algorithm
- * to obtain the bounding box and center of a primitive, respectively.
- */
+// Bounding box and cent callbacks used by the construction algorithm
+// to obtain the bounding box and center of a primitive, respectively.
 typedef struct bbox (*bbox_fn_t)(void* primitive_data, size_t index);
 typedef struct vec3 (*center_fn_t)(void* primitive_data, size_t index);
 
@@ -44,13 +43,14 @@ static inline void set_bvh_node_bbox(struct bvh_node* node, const struct bbox* b
     node->bounds[5] = bbox->max._[2];
 }
 
-/* Builds a BVH for a set of primitives with the given
+/*
+ * Builds a BVH for a set of primitives with the given
  * bounding boxes and centers. The thread pool is used to
  * issue work to multiple threads. The traversal cost
  * is expressed as a ratio of the cost of traversing a node vs.
  * the cost of intersecting a primitive.
  */
-struct bvh build_bvh(
+struct bvh* build_bvh(
     struct thread_pool* thread_pool,
     void* primitive_data,
     bbox_fn_t bbox_fn,
@@ -60,17 +60,19 @@ struct bvh build_bvh(
 
 void free_bvh(struct bvh*);
 
-/* Intersection callback used by the traversal function
+/*
+ * Intersection callback used by the traversal function
  * to intersect the contents of a leaf.
  * The parameter `intersection_data` is the same as the
  * argument passed to `intersect_bvh()`.
  */
-typedef bool (*intersect_leaf_fn_t)(
-    void* intersection_data,
+typedef bool (*intersect_ray_leaf_fn_t)(
+    struct ray* ray, struct hit*,
     const struct bvh_node* leaf,
-    struct ray* ray, struct hit* hit);
+    void* intersection_data);
 
-/* Intersects a BVH with a ray, using the given callback
+/*
+ * Intersects a BVH with a ray, using the given callback
  * to intersect the primitives in a leaf. If `any` is set,
  * then the algorithm terminates as soon as an intersection
  * is found. Otherwise, the algorithms searches for the closest
@@ -78,10 +80,10 @@ typedef bool (*intersect_leaf_fn_t)(
  * contains the intersection distance, and `hit` contains the
  * hit data. Otherwise, `ray` and `hit` are left unchanged.
  */
-void intersect_bvh(
-    void* intersection_data,
-    intersect_leaf_fn_t intersect_leaf,
+bool intersect_ray_bvh(
+    struct ray*, struct hit*,
     const struct bvh* bvh,
-    struct ray* ray, struct hit* hit, bool any);
+    intersect_ray_leaf_fn_t intersect_ray_leaf,
+    void* intersection_data, bool any);
 
 #endif

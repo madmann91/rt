@@ -2,12 +2,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <inttypes.h>
 #include <time.h>
 
 #include "core/radix_sort.h"
 #include "core/hash.h"
-#include "core/alloc.h"
 #include "core/utils.h"
 
 static bool is_sorted(const uint32_t* keys, size_t count) {

@@ -1,163 +1,53 @@
 #include <stdio.h>
+#include <assert.h>
 
 #include "scene/scene.h"
-#include "core/thread_pool.h"
 #include "core/mem_pool.h"
-#include "io/obj_model.h"
-#include "bvh/bvh.h"
-#include "bvh/tri.h"
+#include "core/hash_table.h"
 
-static inline size_t count_triangles(struct obj_model* model) {
-    size_t tri_count = 0;
-    for (size_t i = 0; i < model->face_count; ++i)
-        tri_count += model->faces[i].index_count - 2;
-    return tri_count;
-}
-
-static inline void fill_tris(struct tri* tris, const struct obj_model* model) {
-    size_t tri_count = 0;
-    for (size_t i = 0, n = model->face_count; i < n; ++i) {
-        struct obj_face* face = &model->faces[i];
-        struct vec3 v0 = model->vertices[model->indices[face->first_index + 0].v];
-        struct vec3 v1 = model->vertices[model->indices[face->first_index + 1].v];
-        for (size_t j = 2, m = face->index_count; j < m; ++j) {
-            struct vec3 v2 = model->vertices[model->indices[face->first_index + j].v];
-            tris[tri_count++] = make_tri(&v0, &v1, &v2);
-            v1 = v2;
-        }
-    }
-}
-
-struct permute_task {
-    struct parallel_task_1d task;
-    const struct tri* src_tris;
-    struct tri* dst_tris;
-    const size_t* primitive_indices;
-};
-
-static void run_permute_task(struct parallel_task_1d* task, size_t thread_id) {
-    IGNORE(thread_id);
-    struct permute_task* permute_task = (void*)task;
-    for (size_t i = task->range.begin, n = task->range.end; i < n; ++i)
-        permute_task->dst_tris[i] = permute_task->src_tris[permute_task->primitive_indices[i]];
-}
-
-SWAP(tris, struct tri*)
-
-static inline void permute_tris(
-    struct thread_pool* thread_pool,
-    struct tri** tris,
-    const size_t* primitive_indices,
-    size_t tri_count)
-{
-    struct tri* dst_tris = xmalloc(sizeof(struct tri) * tri_count);
-    parallel_for_1d(
-        thread_pool,
-        run_permute_task,
-        (struct parallel_task_1d*)&(struct permute_task) {
-            .src_tris = *tris,
-            .dst_tris = dst_tris,
-            .primitive_indices = primitive_indices
-        },
-        sizeof(struct permute_task),
-        &(struct range) { 0, tri_count });
-    swap_tris(tris, &dst_tris);
-    free(dst_tris);
-}
-
-static inline struct bbox get_tri_bbox(void* primitive_data, size_t index) {
-    const struct tri* tri = &((struct tri*)primitive_data)[index];
-    return extend_bbox(extend_bbox(point_bbox(tri->p0), get_tri_p1(tri)), get_tri_p2(tri));
-}
-
-static inline struct vec3 get_tri_center(void* primitive_data, size_t index) {
-    const struct tri* tri = &((struct tri*)primitive_data)[index];
-    return scale_vec3(add_vec3(tri->p0, add_vec3(get_tri_p1(tri), get_tri_p2(tri))), (real_t)1 / (real_t)3);
-}
-
-static inline struct bvh build_tri_bvh(struct thread_pool* thread_pool, struct tri** tris, size_t tri_count) {
-    struct bvh bvh = build_bvh(thread_pool, *tris, get_tri_bbox, get_tri_center, tri_count, 1.5);
-    permute_tris(thread_pool, tris, bvh.primitive_indices, tri_count);
-    return bvh;
-}
-
-struct scene* load_scene(struct thread_pool* thread_pool, const char* file_name) {
-    struct obj_model* model = load_obj_model(file_name);
-    if (!model)
-        return NULL;
-    if (model->face_count == 0) {
-        free_obj_model(model);
-        return NULL;
-    }
-
-    printf("Loading scene file '%s'\n", file_name);
+struct scene* new_scene(void) {
     struct scene* scene = xmalloc(sizeof(struct scene));
     scene->mem_pool = new_mem_pool();
-    scene->tri_count = count_triangles(model);
-    printf("- Found %zu triangles\n", scene->tri_count);
-    scene->tris = xmalloc(sizeof(struct tri) * scene->tri_count);
-    fill_tris(scene->tris, model);
-    free_obj_model(model);
-
-    struct timespec t_start;
-    timespec_get(&t_start, TIME_UTC);
-    scene->bvh = build_tri_bvh(thread_pool, &scene->tris, scene->tri_count);
-    struct timespec t_end;
-    timespec_get(&t_end, TIME_UTC);
-
-    printf("- Building BVH took %gms (%zu node(s))\n",
-        elapsed_seconds(&t_start, &t_end) * 1.e3,
-        scene->bvh.node_count);
+    scene->node_table = new_hash_table(sizeof(struct scene_node*), sizeof(struct scene_node*));
     return scene;
 }
 
+static bool compare_scene_nodes(const void* left, const void* right) {
+    const struct scene_node* left_node  = *(const struct scene_node**)left;
+    const struct scene_node* right_node = *(const struct scene_node**)right;
+    return left_node->type == right_node->type && left_node->compare(left_node, right_node);
+}
+
+const struct scene_node* insert_scene_node(struct scene* scene, struct scene_node* node, size_t size) {
+    assert(node->hash && node->compare);
+    uint32_t hash = node->hash(node);
+    size_t node_index = find_in_hash_table(
+        scene->node_table,
+        &node, sizeof(struct scene_node*),
+        hash, compare_scene_nodes);
+    if (node_index != SIZE_MAX)
+        return ((const struct scene_node**)scene->node_table->values)[node_index];
+    struct scene_node* node_copy = alloc_from_pool(&scene->mem_pool, size);
+    // TODO: Simplify nodes to speed up rendering
+    struct scene_node* simplified_node = node_copy;
+    memcpy(node_copy, node, size);
+    insert_in_hash_table(
+        scene->node_table,
+        &node_copy, sizeof(struct scene_node*),
+        &simplified_node, sizeof(struct scene_node*),
+        hash, compare_scene_nodes);
+    return node_copy;
+}
+
 void free_scene(struct scene* scene) {
-    free_bvh(&scene->bvh);
-    free_mem_pool(scene->mem_pool);
-    free(scene->tris);
-    free(scene);
-}
-
-static bool intersect_bvh_leaf_tris(
-    void* intersection_data,
-    const struct bvh_node* leaf,
-    struct ray* ray, struct hit* hit,
-    bool any)
-{
-    const struct tri* tris = intersection_data;
-    bool found = false;
-    for (size_t i = 0, j = leaf->first_child_or_primitive, n = leaf->primitive_count; i < n; ++i) {
-        if (intersect_ray_tri(ray, &tris[j + i], hit)) {
-            hit->primitive_index = j + i;
-            found = true;
-            if (any)
-                return true;
-        }
+    for (size_t i = 0, n = scene->node_table->cap; i < n; ++i) {
+        if (!is_bucket_occupied(scene->node_table, i))
+            continue;
+        struct scene_node* node = ((struct scene_node**)scene->node_table->values)[i];
+        if (node->cleanup)
+            node->cleanup(node);
     }
-    return found;
-}
-
-static bool intersect_bvh_leaf_tris_any(
-    void* intersection_data,
-    const struct bvh_node* leaf,
-    struct ray* ray, struct hit* hit)
-{
-    return intersect_bvh_leaf_tris(intersection_data, leaf, ray, hit, true);
-}
-
-static bool intersect_bvh_leaf_tris_closest(
-    void* intersection_data,
-    const struct bvh_node* leaf,
-    struct ray* ray, struct hit* hit)
-{
-    return intersect_bvh_leaf_tris(intersection_data, leaf, ray, hit, false);
-}
-
-bool intersect_ray_scene(struct ray* ray, const struct scene* scene, struct hit* hit, bool any) {
-    hit->primitive_index = INVALID_PRIMITIVE_INDEX;
-    intersect_bvh(
-        scene->tris,
-        any ? intersect_bvh_leaf_tris_any : intersect_bvh_leaf_tris_closest,
-        &scene->bvh, ray, hit, any);
-    return hit->primitive_index != INVALID_PRIMITIVE_INDEX;
+    free_mem_pool(scene->mem_pool);
+    free_hash_table(scene->node_table);
+    free(scene);
 }

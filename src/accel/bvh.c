@@ -810,8 +810,8 @@ static inline bool intersect_ray_node(
     real_t tmax_y = intersect_ray_axis_max(ray, ray_data, 1, node->bounds[2 + 1 - ray_data->octant[1]]);
     real_t tmax_z = intersect_ray_axis_max(ray, ray_data, 2, node->bounds[4 + 1 - ray_data->octant[2]]);
 
-    real_t tmin = max_real(max_real(tmin_x, tmin_y), max_real(tmin_z, ray->t_min));
-    real_t tmax = min_real(min_real(tmax_x, tmax_y), min_real(tmax_z, ray->t_max));
+    real_t tmin = max_real(tmin_x, max_real(tmin_x, max_real(tmin_z, ray->t_min)));
+    real_t tmax = min_real(tmax_x, min_real(tmax_y, min_real(tmax_z, ray->t_max)));
 
     *t_entry = tmin;
     return tmin <= tmax;
